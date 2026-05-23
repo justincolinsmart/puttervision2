@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>3D Putter Simulator Pro - Vision Tracking</title>
+    <title>3D Putter Simulator Pro - Dynamic Vision Tracking</title>
     <style>
         body { 
             margin: 0; 
@@ -116,12 +116,7 @@
     <div id="ui-container">
         <div class="slider-group">
             <div class="slider-container">
-                <label>Vision Putter Length:</label>
-                <input type="range" id="putterLengthPixels" min="50" max="400" step="1" value="210">
-                <span id="putterLengthValue" class="val-display">210px</span>
-            </div>
-            <div class="slider-container">
-                <label>Swing Sensitivity:</label>
+                <label>3D Swing Scale:</label>
                 <input type="range" id="sensitivity" min="0.5" max="5.0" step="0.1" value="2.5">
                 <span id="sensValue" class="val-display">2.5x</span>
             </div>
@@ -185,13 +180,17 @@
         scene.add(gridHelper);
 
         // ==========================================
-        // 2. BUILD THE 3D MANNEQUIN 
+        // 2. BUILD THE 3D MANNEQUIN (Custom Hardware)
         // ==========================================
         const skinMat = new THREE.MeshLambertMaterial({ color: 0xffccaa });
         const shirtMat = new THREE.MeshLambertMaterial({ color: 0x2196F3 });
         const pantsMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
-        const clubMat = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
-        const gripMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+        
+        // Custom Putter Materials
+        const shaftMat = new THREE.MeshLambertMaterial({ color: 0xcc0000 }); // Red Shaft
+        const gripMat = new THREE.MeshLambertMaterial({ color: 0xffffff }); // White Grip
+        const collarMat = new THREE.MeshLambertMaterial({ color: 0x00cccc }); // Cyan Collar
+        const headMat = new THREE.MeshLambertMaterial({ color: 0x222222 }); // Black Mallet
 
         const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
         leftLeg.position.set(-0.4, 0, 0); scene.add(leftLeg);
@@ -214,12 +213,15 @@
 
         const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.8), gripMat);
         grip.position.set(0, -2.2, 0); pivot.add(grip);
+        
+        const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.1), collarMat);
+        collar.position.set(0, -2.65, 0); pivot.add(collar);
 
-        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 2.5), clubMat);
-        shaft.position.set(0, -3.8, 0); pivot.add(shaft);
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.4), shaftMat);
+        shaft.position.set(0, -3.9, 0); pivot.add(shaft);
 
-        const clubHead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.3), clubMat);
-        clubHead.position.set(0.15, -5, 0.05); pivot.add(clubHead);
+        const clubHead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.35), headMat);
+        clubHead.position.set(0.15, -5.15, 0.05); pivot.add(clubHead);
 
         const ballRadius = 0.1;
         const ball = new THREE.Mesh(new THREE.SphereGeometry(ballRadius, 32, 32), new THREE.MeshLambertMaterial({ color: 0xffffff }));
@@ -234,16 +236,19 @@
         const cvCtx = cvCanvas.getContext('2d', { willReadFrequently: true });
         const debugText = document.getElementById('debug-text');
 
-        // Tracking processing resolution (smaller = faster)
         const PROC_WIDTH = 240; 
         const PROC_HEIGHT = 320; 
         
         let baseAngle = null; 
         let currentShaftAngle = 0;
-        let lastHeadX_px = null; // Position of projected putter head in pixels
         
-        let targetRotZ = 0; // The mapped swing angle for 3D
-        let currRotZ = 0;   // Smoothed swing angle
+        // Auto-scaling dynamic lengths
+        let globalBlueY = 0;
+        let globalRedMaxY = 0; 
+        let lastHeadX_px = null; 
+        
+        let targetRotZ = 0; 
+        let currRotZ = 0;   
         let currRotY = 0;
 
         let lastMoveTime = Date.now(); 
@@ -261,10 +266,6 @@
         const distanceDisplay = document.getElementById('distanceDisplay');
         const directionDisplay = document.getElementById('directionDisplay');
 
-        const putterLengthSlider = document.getElementById('putterLengthPixels');
-        const putterLengthValue = document.getElementById('putterLengthValue');
-        putterLengthSlider.addEventListener('input', () => putterLengthValue.innerText = putterLengthSlider.value + "px");
-
         const sensitivitySlider = document.getElementById('sensitivity');
         const sensValue = document.getElementById('sensValue');
         sensitivitySlider.addEventListener('input', () => sensValue.innerText = sensitivitySlider.value + "x");
@@ -277,14 +278,13 @@
         const stimpValue = document.getElementById('stimpValue');
         stimpSlider.addEventListener('input', () => stimpValue.innerText = stimpSlider.value);
 
-        // Utility: RGB to HSV for color filtering
         function rgbToHsv(r, g, b) {
             r /= 255, g /= 255, b /= 255;
             let max = Math.max(r, g, b), min = Math.min(r, g, b);
             let h, s, v = max;
             let d = max - min;
             s = max == 0 ? 0 : d / max;
-            if (max == min) { h = 0; }
+            if (max == min) h = 0; 
             else {
                 switch (max) {
                     case r: h = (g - b) / d + (g < b ? 6 : 0); break;
@@ -323,7 +323,6 @@
             statusTxt.innerText = "Center Re-Calibrated";
         });
 
-        // Main Vision Loop
         function trackFrame() {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 cvCtx.drawImage(video, 0, 0, PROC_WIDTH, PROC_HEIGHT);
@@ -332,124 +331,103 @@
 
                 let blueSumX = 0, blueSumY = 0, blueCount = 0;
                 let redSumX = 0, redSumY = 0, redCount = 0;
+                let redMaxY = 0; // Tracks the absolute bottom of the red shaft
 
-                // Step 1: Find the Light Blue Strip
-                // We sample every 4th pixel to save CPU
+                // 1. Find Light Blue Anchor
                 for (let i = 0; i < data.length; i += 16) {
-                    let r = data[i];
-                    let g = data[i+1];
-                    let b = data[i+2];
-                    
+                    let r = data[i], g = data[i+1], b = data[i+2];
                     const [h, s, v] = rgbToHsv(r, g, b);
-                    
-                    // Light Blue / Cyan Hue (approx 150-250)
-                    if (h > 150 && h < 250 && s > 0.25 && v > 0.35) { // Relaxed V slightly for backlit conditions
+                    if (h > 150 && h < 250 && s > 0.25 && v > 0.35) { 
                         let px = (i / 4) % PROC_WIDTH;
                         let py = Math.floor((i / 4) / PROC_WIDTH);
-                        blueSumX += px;
-                        blueSumY += py;
-                        blueCount++;
+                        blueSumX += px; blueSumY += py; blueCount++;
                     }
                 }
 
                 if (blueCount > 5) {
                     let blueX = blueSumX / blueCount;
                     let blueY = blueSumY / blueCount;
+                    globalBlueY = blueY; // Store for physics engine
 
-                    // Step 2: Find the Red Shaft strictly BELOW the blue strip
+                    // 2. Find entire Red Shaft below anchor
                     for (let i = 0; i < data.length; i += 16) {
                         let py = Math.floor((i / 4) / PROC_WIDTH);
-                        
-                        // "Do not look for any red above that blue strip"
                         if (py < blueY) continue; 
 
-                        let r = data[i];
-                        let g = data[i+1];
-                        let b = data[i+2];
-                        
+                        let r = data[i], g = data[i+1], b = data[i+2];
                         const [h, s, v] = rgbToHsv(r, g, b);
-                        
-                        // Red Hue (wraps around 0/360). Relaxed S and V slightly.
                         if ((h < 25 || h > 335) && s > 0.35 && v > 0.3) {
                             let px = (i / 4) % PROC_WIDTH;
-                            redSumX += px;
-                            redSumY += py;
-                            redCount++;
+                            redSumX += px; redSumY += py; redCount++;
+                            
+                            // Capture the lowest red pixel on the screen
+                            if (py > redMaxY) redMaxY = py; 
                         }
                     }
 
                     if (redCount > 5) {
+                        globalRedMaxY = redMaxY; // Store lowest point for physics engine
+
                         let redX = redSumX / redCount;
                         let redY = redSumY / redCount;
 
-                        // Step 3: Calculate Angle & Extrapolate Club Head Position
-                        // currentShaftAngle = atan2(dx, dy) where dx=horizontal, dy=vertical
+                        // Calculate overall angle
                         let dx = redX - blueX;
                         let dy = redY - blueY;
                         currentShaftAngle = Math.atan2(dx, dy); 
 
-                        // Handle Calibration on first read or reset
                         if (baseAngle === null) {
                             baseAngle = currentShaftAngle;
                             ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
                             ballVelX = 0; ballVelZ = 0;
-                            lastHeadX_px = null; // Reset visual speed tracking
+                            lastHeadX_px = null;
                         }
 
                         let angleDelta = currentShaftAngle - baseAngle;
                         let sensMulti = parseFloat(sensitivitySlider.value);
-                        
-                        // Map the 2D angle change to the 3D target rotation
-                        // This drives the visual mannequin
                         targetRotZ = angleDelta * sensMulti;
 
-                        // Step 4: PROJECT THE PUTTER HEAD for speed tracking
-                        // User stated length is 20 inches from the blue strip.
-                        // Sensitivity slider maps 2D angle change to logical degrees.
-                        // We use the slider value as the *base pixel distance* for 20 inches.
-                        const pixelDist_20in = parseFloat(putterLengthSlider.value);
-                        const projectLength_px = pixelDist_20in * sensMulti; // Scaled length for logical inches
-
-                        const headX_px = blueX + projectLength_px * Math.sin(currentShaftAngle);
-                        const headY_px = blueY + projectLength_px * Math.cos(currentShaftAngle);
-
-                        // Draw Debug Graphics
-                        // Blue Box (Centroid)
-                        cvCtx.fillStyle = '#00FFFF';
-                        cvCtx.fillRect(blueX-4, blueY-4, 8, 8);
+                        // --- DYNAMIC PUTTER HEAD POSITION ---
+                        // Distance from the blue tape to the exact bottom of the red tape
+                        let visibleShaftLength_px = redMaxY - blueY; 
                         
-                        // Red Box (Centroid of variable visible shaft)
-                        cvCtx.fillStyle = '#FF0000';
-                        cvCtx.fillRect(redX-4, redY-4, 8, 8);
+                        // Fallback constraint just in case nothing is visible
+                        if (visibleShaftLength_px < 20) visibleShaftLength_px = 20;
 
-                        // Debug Line connecting centroids (to show the raw shaft direction)
-                        cvCtx.strokeStyle = 'white';
-                        cvCtx.lineWidth = 1;
+                        const headX_px = blueX + visibleShaftLength_px * Math.sin(currentShaftAngle);
+                        const headY_px = blueY + visibleShaftLength_px * Math.cos(currentShaftAngle);
+
+                        // --- DRAW DIGITAL TWIN ON CAMERA STREAM ---
+                        // White Grip & Cyan Collar
+                        cvCtx.fillStyle = '#FFFFFF';
+                        cvCtx.fillRect(blueX-6, blueY-20, 12, 16);
+                        cvCtx.fillStyle = '#00FFFF';
+                        cvCtx.fillRect(blueX-6, blueY-4, 12, 8);
+
+                        // Full Red Shaft directly to the calculated putter head
+                        cvCtx.strokeStyle = '#FF0000';
+                        cvCtx.lineWidth = 4;
                         cvCtx.beginPath();
                         cvCtx.moveTo(blueX, blueY);
-                        cvCtx.lineTo(redX, redY);
+                        cvCtx.lineTo(headX_px, headY_px);
                         cvCtx.stroke();
 
-                        // Green 'X' marker for PROJECTED head position
-                        cvCtx.fillStyle = '#00FF00';
-                        cvCtx.font = 'bold 20px sans-serif';
-                        cvCtx.fillText('X', headX_px - 8, headY_px + 8);
+                        // Putter Head Location (Black block)
+                        cvCtx.fillStyle = '#000000';
+                        cvCtx.fillRect(headX_px-10, headY_px-2, 20, 8);
                         
-                        // Activity tracking to prevent auto-reset mid swing
                         if (Math.abs(angleDelta) > 0.05) {
                             lastMoveTime = Date.now();
-                            statusTxt.innerText = "Tracking Swing...";
+                            statusTxt.innerText = "Tracking Full Shaft...";
                         }
                     } else {
-                        // Red not found below blue
-                        debugText.innerText = `Blue: ${blueCount} | Red (Below Blue): 0`;
+                        debugText.innerText = `Blue: OK | Red: 0`;
                     }
                 } else {
-                    // Blue not found
                     debugText.innerText = `Blue: 0 | Red: ${redCount}`;
                 }
             }
-            requestAnimationFrame(trackFrame); // Loop vision processing
+            requestAnimationFrame(trackFrame); 
         }
 
         // ==========================================
@@ -470,62 +448,52 @@
             requestAnimationFrame(animate);
             const now = Date.now();
             
-            // --- IDLE AUTO-CALIBRATION ---
             if (now - lastMoveTime > RESET_DELAY && baseAngle !== null) {
                 baseAngle = currentShaftAngle;
                 targetRotZ = 0;
-                lastHeadX_px = null; // Clear vision speed tracking on reset
+                lastHeadX_px = null; 
                 statusTxt.innerText = "Idle - Center Calibrated";
-                
                 if (ballVelX === 0 && ballVelZ === 0) {
                     ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
                 }
             }
 
-            // --- 3D MANNEQUIN MOVEMENT ---
-            // Smoothly interpolate to target rotation (exponential moving average)
             currRotZ += (targetRotZ - currRotZ) * 0.2;
             pivot.rotation.z = currRotZ;
-
-            // --- Green rolling face angle - currently set square (no Y tracking) ---
             pivot.rotation.y = currRotY;
 
             clubHead.getWorldPosition(currentClubPos);
 
-            // --- KINETICS & COLLISION SETUP ---
             let currentStimp = parseFloat(stimpSlider.value);
             let dynamicFriction = 0.0012 * (10 / currentStimp); 
 
-            // --- HIT DETECTION ---
+            // --- HIT DETECTION & AUTO-SCALING SPEED ---
             if (ballVelX === 0 && ballVelZ === 0 && baseAngle !== null) {
                 let faceWorldX = currentClubPos.x - 0.2; 
                 let lastFaceWorldX = lastClubPos.x - 0.2;
                 let ballRightEdge = ball.position.x + ballRadius;
 
-                // Crossed the ball threshold in 3D
                 if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
-                    
-                    // --- Speed Calculation relying on Vision Head Position Displacement ---
-                    // "Get putter head speed from shaft angle and displacement over time"
-                    // currentShaftAngle, baseAngle are available. 
-                    
                     if (lastHeadX_px !== null) {
-                        // Project the *current logical head pixel position*
-                        const pixelDist_20in = parseFloat(putterLengthSlider.value);
-                        const sensMulti = parseFloat(sensitivitySlider.value);
-                        const projectLength_px = pixelDist_20in * sensMulti;
+                        // Dynamically scale pixels to physical inches. 
+                        // The bounding box of the red shaft (globalRedMaxY - globalBlueY) acts as our 20-inch scale reference.
+                        let visibleShaftLength_px = globalRedMaxY - globalBlueY;
+                        if (visibleShaftLength_px < 20) visibleShaftLength_px = 20;
 
-                        const headX_px = PROC_WIDTH / 2 + projectLength_px * Math.sin(currentShaftAngle);
+                        // Calculate pixel position of the head at impact
+                        const headX_px = PROC_WIDTH / 2 + visibleShaftLength_px * Math.sin(currentShaftAngle);
                         
-                        // Pixel displacement per frame
+                        // Find horizontal pixel displacement since the last frame
                         const deltaX_px = Math.abs(headX_px - lastHeadX_px);
                         
-                        // Convert pixel delta to speed (rough calibration constant)
-                        let clubSpeed = deltaX_px * 0.003; 
+                        // fractionOfShaftMoved * 20 inches = physical inches moved per frame
+                        let physicalInchesMoved = (deltaX_px / visibleShaftLength_px) * 20;
+                        
+                        // Map physical displacement directly to simulation velocity
+                        let clubSpeed = physicalInchesMoved * 0.05; 
                         
                         if (clubSpeed > 0.005) { 
                             let smash = parseFloat(smashSlider.value);
-                            //physicsScale maps speed to visual yards
                             let physicsScale = 1.3; 
                             
                             ballVelX = -clubSpeed * smash * physicsScale; 
@@ -533,17 +501,15 @@
 
                             let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
                             distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
-                            directionDisplay.innerText = "Face: Square"; // Vision face angle not tracked yet
+                            directionDisplay.innerText = "Face: Square"; 
                         }
                     }
                 }
                 
-                // Track 2D head position over time for the next frame's speed calculation
-                // Re-project here so we have it for the next physics loop
-                const pixelDist_20in = parseFloat(putterLengthSlider.value);
-                const sensMulti = parseFloat(sensitivitySlider.value);
-                const projectLength_px = pixelDist_20in * sensMulti;
-                lastHeadX_px = PROC_WIDTH / 2 + projectLength_px * Math.sin(currentShaftAngle);
+                // Track head position for next frame's velocity delta
+                let visibleShaftLength_px = globalRedMaxY - globalBlueY;
+                if (visibleShaftLength_px < 20) visibleShaftLength_px = 20;
+                lastHeadX_px = PROC_WIDTH / 2 + visibleShaftLength_px * Math.sin(currentShaftAngle);
             }
             
             lastClubPos.copy(currentClubPos);
@@ -554,7 +520,6 @@
                 ball.position.z += ballVelZ;
                 
                 let speed = Math.sqrt(ballVelX * ballVelX + ballVelZ * ballVelZ);
-                
                 if (speed > dynamicFriction) {
                     let dropX = (Math.abs(ballVelX) / speed) * dynamicFriction;
                     let dropZ = (Math.abs(ballVelZ) / speed) * dynamicFriction;
