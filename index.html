@@ -58,7 +58,7 @@
         }
         .slider-container label { flex-shrink: 0; width: 90px; }
         input[type="range"] { flex-grow: 1; }
-        .val-display { width: 35px; text-align: right; color: #1E90FF; }
+        .val-display { width: 45px; text-align: right; color: #1E90FF; font-family: monospace; }
         
         #status { 
             font-weight: 600; 
@@ -116,9 +116,14 @@
     <div id="ui-container">
         <div class="slider-group">
             <div class="slider-container">
+                <label>Vision Putter Length:</label>
+                <input type="range" id="putterLengthPixels" min="50" max="400" step="1" value="210">
+                <span id="putterLengthValue" class="val-display">210px</span>
+            </div>
+            <div class="slider-container">
                 <label>Swing Sensitivity:</label>
-                <input type="range" id="sensitivity" min="0.5" max="5.0" step="0.1" value="2.0">
-                <span id="sensValue" class="val-display">2.0x</span>
+                <input type="range" id="sensitivity" min="0.5" max="5.0" step="0.1" value="2.5">
+                <span id="sensValue" class="val-display">2.5x</span>
             </div>
             <div class="slider-container">
                 <label>Smash Factor:</label>
@@ -132,7 +137,8 @@
             </div>
         </div>
 
-        <button id="startBtn">Start Camera Tracking</button>
+        <button id="startBtn">Start & Calibrate Camera</button>
+        <button id="calibrateBtn" style="display:none; background:#555;">Recalibrate Center</button>
         <div id="status">Waiting to start...</div>
         
         <div class="data-display">
@@ -234,25 +240,30 @@
         
         let baseAngle = null; 
         let currentShaftAngle = 0;
+        let lastHeadX_px = null; // Position of projected putter head in pixels
         
         let targetRotZ = 0; // The mapped swing angle for 3D
         let currRotZ = 0;   // Smoothed swing angle
-        let targetRotY = 0; // Face angle (kept constant for purely 2D tracked swing, unless expanded later)
         let currRotY = 0;
 
         let lastMoveTime = Date.now(); 
-        const RESET_DELAY = 2500;    
+        const RESET_DELAY = 3000;    
 
         let ballVelX = 0;
         let ballVelZ = 0;
         let lastClubPos = new THREE.Vector3();
         let currentClubPos = new THREE.Vector3();
 
-        // UI Listeners
+        // UI Elements & Listeners
         const startBtn = document.getElementById('startBtn');
+        const calibrateBtn = document.getElementById('calibrateBtn');
         const statusTxt = document.getElementById('status');
         const distanceDisplay = document.getElementById('distanceDisplay');
         const directionDisplay = document.getElementById('directionDisplay');
+
+        const putterLengthSlider = document.getElementById('putterLengthPixels');
+        const putterLengthValue = document.getElementById('putterLengthValue');
+        putterLengthSlider.addEventListener('input', () => putterLengthValue.innerText = putterLengthSlider.value + "px");
 
         const sensitivitySlider = document.getElementById('sensitivity');
         const sensValue = document.getElementById('sensValue');
@@ -297,13 +308,19 @@
                     cvCanvas.width = PROC_WIDTH;
                     cvCanvas.height = PROC_HEIGHT;
                     startBtn.style.display = 'none'; 
-                    statusTxt.innerText = "Camera Active. Swing to hit!";
-                    debugText.innerText = "Tracking...";
+                    calibrateBtn.style.display = 'block';
+                    statusTxt.innerText = "Camera Active. Stand still to calibrate.";
                     trackFrame();
                 };
             } catch (err) {
                 statusTxt.innerText = "Camera error: " + err.message;
             }
+        });
+
+        calibrateBtn.addEventListener('click', () => {
+            baseAngle = null; 
+            lastMoveTime = Date.now();
+            statusTxt.innerText = "Center Re-Calibrated";
         });
 
         // Main Vision Loop
@@ -325,8 +342,8 @@
                     
                     const [h, s, v] = rgbToHsv(r, g, b);
                     
-                    // Light Blue / Cyan Hue (approx 160-240)
-                    if (h > 150 && h < 250 && s > 0.25 && v > 0.4) {
+                    // Light Blue / Cyan Hue (approx 150-250)
+                    if (h > 150 && h < 250 && s > 0.25 && v > 0.35) { // Relaxed V slightly for backlit conditions
                         let px = (i / 4) % PROC_WIDTH;
                         let py = Math.floor((i / 4) / PROC_WIDTH);
                         blueSumX += px;
@@ -339,7 +356,7 @@
                     let blueX = blueSumX / blueCount;
                     let blueY = blueSumY / blueCount;
 
-                    // Step 2: Find the Red Strip strictly BELOW the blue strip
+                    // Step 2: Find the Red Shaft strictly BELOW the blue strip
                     for (let i = 0; i < data.length; i += 16) {
                         let py = Math.floor((i / 4) / PROC_WIDTH);
                         
@@ -352,8 +369,8 @@
                         
                         const [h, s, v] = rgbToHsv(r, g, b);
                         
-                        // Red Hue (wraps around 0/360)
-                        if ((h < 25 || h > 335) && s > 0.4 && v > 0.35) {
+                        // Red Hue (wraps around 0/360). Relaxed S and V slightly.
+                        if ((h < 25 || h > 335) && s > 0.35 && v > 0.3) {
                             let px = (i / 4) % PROC_WIDTH;
                             redSumX += px;
                             redSumY += py;
@@ -365,21 +382,8 @@
                         let redX = redSumX / redCount;
                         let redY = redSumY / redCount;
 
-                        // Draw Debug Line
-                        cvCtx.strokeStyle = '#00FF00';
-                        cvCtx.lineWidth = 3;
-                        cvCtx.beginPath();
-                        cvCtx.moveTo(blueX, blueY);
-                        cvCtx.lineTo(redX, redY);
-                        cvCtx.stroke();
-                        
-                        cvCtx.fillStyle = '#00FFFF';
-                        cvCtx.fillRect(blueX-3, blueY-3, 6, 6);
-                        cvCtx.fillStyle = '#FF0000';
-                        cvCtx.fillRect(redX-3, redY-3, 6, 6);
-
-                        // Step 3: Calculate Angle & Extrapolate Club Pos
-                        // 0 degrees = vertical
+                        // Step 3: Calculate Angle & Extrapolate Club Head Position
+                        // currentShaftAngle = atan2(dx, dy) where dx=horizontal, dy=vertical
                         let dx = redX - blueX;
                         let dy = redY - blueY;
                         currentShaftAngle = Math.atan2(dx, dy); 
@@ -389,20 +393,60 @@
                             baseAngle = currentShaftAngle;
                             ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
                             ballVelX = 0; ballVelZ = 0;
+                            lastHeadX_px = null; // Reset visual speed tracking
                         }
 
                         let angleDelta = currentShaftAngle - baseAngle;
                         let sensMulti = parseFloat(sensitivitySlider.value);
                         
                         // Map the 2D angle change to the 3D target rotation
+                        // This drives the visual mannequin
                         targetRotZ = angleDelta * sensMulti;
 
+                        // Step 4: PROJECT THE PUTTER HEAD for speed tracking
+                        // User stated length is 20 inches from the blue strip.
+                        // Sensitivity slider maps 2D angle change to logical degrees.
+                        // We use the slider value as the *base pixel distance* for 20 inches.
+                        const pixelDist_20in = parseFloat(putterLengthSlider.value);
+                        const projectLength_px = pixelDist_20in * sensMulti; // Scaled length for logical inches
+
+                        const headX_px = blueX + projectLength_px * Math.sin(currentShaftAngle);
+                        const headY_px = blueY + projectLength_px * Math.cos(currentShaftAngle);
+
+                        // Draw Debug Graphics
+                        // Blue Box (Centroid)
+                        cvCtx.fillStyle = '#00FFFF';
+                        cvCtx.fillRect(blueX-4, blueY-4, 8, 8);
+                        
+                        // Red Box (Centroid of variable visible shaft)
+                        cvCtx.fillStyle = '#FF0000';
+                        cvCtx.fillRect(redX-4, redY-4, 8, 8);
+
+                        // Debug Line connecting centroids (to show the raw shaft direction)
+                        cvCtx.strokeStyle = 'white';
+                        cvCtx.lineWidth = 1;
+                        cvCtx.beginPath();
+                        cvCtx.moveTo(blueX, blueY);
+                        cvCtx.lineTo(redX, redY);
+                        cvCtx.stroke();
+
+                        // Green 'X' marker for PROJECTED head position
+                        cvCtx.fillStyle = '#00FF00';
+                        cvCtx.font = 'bold 20px sans-serif';
+                        cvCtx.fillText('X', headX_px - 8, headY_px + 8);
+                        
                         // Activity tracking to prevent auto-reset mid swing
                         if (Math.abs(angleDelta) > 0.05) {
                             lastMoveTime = Date.now();
                             statusTxt.innerText = "Tracking Swing...";
                         }
+                    } else {
+                        // Red not found below blue
+                        debugText.innerText = `Blue: ${blueCount} | Red (Below Blue): 0`;
                     }
+                } else {
+                    // Blue not found
+                    debugText.innerText = `Blue: 0 | Red: ${redCount}`;
                 }
             }
             requestAnimationFrame(trackFrame); // Loop vision processing
@@ -430,6 +474,7 @@
             if (now - lastMoveTime > RESET_DELAY && baseAngle !== null) {
                 baseAngle = currentShaftAngle;
                 targetRotZ = 0;
+                lastHeadX_px = null; // Clear vision speed tracking on reset
                 statusTxt.innerText = "Idle - Center Calibrated";
                 
                 if (ballVelX === 0 && ballVelZ === 0) {
@@ -440,9 +485,9 @@
             // --- 3D MANNEQUIN MOVEMENT ---
             // Smoothly interpolate to target rotation (exponential moving average)
             currRotZ += (targetRotZ - currRotZ) * 0.2;
-            currRotY += (targetRotY - currRotY) * 0.2;
-
             pivot.rotation.z = currRotZ;
+
+            // --- Green rolling face angle - currently set square (no Y tracking) ---
             pivot.rotation.y = currRotY;
 
             clubHead.getWorldPosition(currentClubPos);
@@ -452,29 +497,53 @@
             let dynamicFriction = 0.0012 * (10 / currentStimp); 
 
             // --- HIT DETECTION ---
-            if (ballVelX === 0 && ballVelZ === 0) {
+            if (ballVelX === 0 && ballVelZ === 0 && baseAngle !== null) {
                 let faceWorldX = currentClubPos.x - 0.2; 
                 let lastFaceWorldX = lastClubPos.x - 0.2;
                 let ballRightEdge = ball.position.x + ballRadius;
 
-                // Crossed the ball threshold
+                // Crossed the ball threshold in 3D
                 if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
-                    // "Get putter head speed from shaft angle and displacement over time"
-                    // Displacement is already calculated inherently here by the 3D space movement delta
-                    let clubSpeed = Math.abs(currentClubPos.x - lastClubPos.x);
                     
-                    if (clubSpeed > 0.005) { 
-                        let smash = parseFloat(smashSlider.value);
-                        let physicsScale = 1.5; 
-                        
-                        ballVelX = -clubSpeed * smash * physicsScale; 
-                        ballVelZ = currRotY * clubSpeed * smash * physicsScale; // If we add face tracking later
+                    // --- Speed Calculation relying on Vision Head Position Displacement ---
+                    // "Get putter head speed from shaft angle and displacement over time"
+                    // currentShaftAngle, baseAngle are available. 
+                    
+                    if (lastHeadX_px !== null) {
+                        // Project the *current logical head pixel position*
+                        const pixelDist_20in = parseFloat(putterLengthSlider.value);
+                        const sensMulti = parseFloat(sensitivitySlider.value);
+                        const projectLength_px = pixelDist_20in * sensMulti;
 
-                        let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
-                        distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
-                        directionDisplay.innerText = "Face: Square"; // CV face angle not tracked yet, defaults square
+                        const headX_px = PROC_WIDTH / 2 + projectLength_px * Math.sin(currentShaftAngle);
+                        
+                        // Pixel displacement per frame
+                        const deltaX_px = Math.abs(headX_px - lastHeadX_px);
+                        
+                        // Convert pixel delta to speed (rough calibration constant)
+                        let clubSpeed = deltaX_px * 0.003; 
+                        
+                        if (clubSpeed > 0.005) { 
+                            let smash = parseFloat(smashSlider.value);
+                            //physicsScale maps speed to visual yards
+                            let physicsScale = 1.3; 
+                            
+                            ballVelX = -clubSpeed * smash * physicsScale; 
+                            ballVelZ = currRotY * clubSpeed * smash * physicsScale; 
+
+                            let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
+                            distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
+                            directionDisplay.innerText = "Face: Square"; // Vision face angle not tracked yet
+                        }
                     }
                 }
+                
+                // Track 2D head position over time for the next frame's speed calculation
+                // Re-project here so we have it for the next physics loop
+                const pixelDist_20in = parseFloat(putterLengthSlider.value);
+                const sensMulti = parseFloat(sensitivitySlider.value);
+                const projectLength_px = pixelDist_20in * sensMulti;
+                lastHeadX_px = PROC_WIDTH / 2 + projectLength_px * Math.sin(currentShaftAngle);
             }
             
             lastClubPos.copy(currentClubPos);
