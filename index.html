@@ -237,7 +237,7 @@
         let baseAngle = null; 
         let currentShaftAngle = 0;
         
-        // Used to track the highest and lowest points of the shaft for physics
+        // Tracking the top and bottom bounds of the red shaft
         let globalTopY = 0;
         let globalBottomY = 0; 
         let lastHeadX_px = null; 
@@ -305,9 +305,11 @@
                 const frameData = cvCtx.getImageData(0, 0, PROC_WIDTH, PROC_HEIGHT);
                 const data = frameData.data;
 
-                // Variables for linear regression (line of best fit) for the red blob
-                let redSumX = 0, redSumY = 0, redSumXY = 0, redSumY2 = 0, redCount = 0;
-                let redMinY = PROC_HEIGHT, redMaxY = 0; 
+                let redCount = 0;
+                
+                // Track sum of X coordinates for red pixels in each row to find the center line
+                let rowRedCount = new Int32Array(PROC_HEIGHT);
+                let rowRedSumX = new Float32Array(PROC_HEIGHT);
 
                 // Process all pixels
                 for (let i = 0; i < data.length; i += 4) {
@@ -318,14 +320,9 @@
 
                     // Detect Red Shaft using RGB ratios
                     if (r > 90 && r > g * 1.5 && r > b * 1.5) {
-                        redSumX += px;
-                        redSumY += py;
-                        redSumXY += px * py;
-                        redSumY2 += py * py;
+                        rowRedCount[py]++;
+                        rowRedSumX[py] += px;
                         redCount++;
-                        
-                        if (py < redMinY) redMinY = py;
-                        if (py > redMaxY) redMaxY = py; 
                         
                         // Highlight detected red pixels in pure red
                         data[i] = 255; data[i+1] = 0; data[i+2] = 0;
@@ -338,58 +335,74 @@
                 // Write pixels back to canvas
                 cvCtx.putImageData(frameData, 0, 0);
 
-                // If enough red pixels are found, calculate the line of best fit
                 if (redCount > 30) {
-                    let meanX = redSumX / redCount;
-                    let meanY = redSumY / redCount;
-                    
-                    // Calculate slope (dx/dy) using least squares to avoid vertical asymptote issues
-                    let denom = redSumY2 - (redSumY * redSumY) / redCount;
-                    let slope = 0; 
-                    if (denom !== 0) {
-                        slope = (redSumXY - (redSumX * redSumY) / redCount) / denom;
-                    }
-                    
-                    // Find the predicted top and bottom X coordinates based on the slope
-                    let topX = meanX + slope * (redMinY - meanY);
-                    let topY = redMinY;
-                    
-                    let bottomX = meanX + slope * (redMaxY - meanY);
-                    let bottomY = redMaxY;
+                    // Find the highest (topY) and lowest (bottomY) row that has a meaningful amount of red
+                    let topY = -1;
+                    let bottomY = -1;
 
-                    globalTopY = topY;
-                    globalBottomY = bottomY;
-
-                    currentShaftAngle = Math.atan2(bottomX - topX, bottomY - topY); 
-
-                    if (baseAngle === null) {
-                        baseAngle = currentShaftAngle;
-                        ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
-                        ballVelX = 0; ballVelZ = 0;
-                        lastHeadX_px = null;
+                    for (let y = 0; y < PROC_HEIGHT; y++) {
+                        if (rowRedCount[y] > 2) { // Threshold to ignore random single-pixel noise
+                            if (topY === -1) topY = y;
+                            bottomY = y;
+                        }
                     }
 
-                    let angleDelta = currentShaftAngle - baseAngle;
-                    let sensMulti = parseFloat(sensitivitySlider.value);
-                    targetRotZ = angleDelta * sensMulti;
+                    // If we found a valid vertical strip
+                    if (topY !== -1 && bottomY !== -1 && (bottomY - topY) > 20) {
+                        
+                        // Average the top 10% to find a stable top X coordinate
+                        let topSumX = 0, topCountX = 0;
+                        for (let y = topY; y < topY + 10 && y <= bottomY; y++) {
+                            topSumX += rowRedSumX[y];
+                            topCountX += rowRedCount[y];
+                        }
+                        let topX = topCountX > 0 ? topSumX / topCountX : PROC_WIDTH / 2;
 
-                    // --- DRAW DIGITAL TWIN ON CAMERA STREAM ---
-                    cvCtx.strokeStyle = '#FFFFFF';
-                    cvCtx.lineWidth = 4;
-                    cvCtx.beginPath();
-                    cvCtx.moveTo(topX, topY);
-                    cvCtx.lineTo(bottomX, bottomY);
-                    cvCtx.stroke();
+                        // Average the bottom 10% to find a stable bottom X coordinate (the club head)
+                        let botSumX = 0, botCountX = 0;
+                        for (let y = bottomY - 10; y <= bottomY && y >= topY; y--) {
+                            botSumX += rowRedSumX[y];
+                            botCountX += rowRedCount[y];
+                        }
+                        let bottomX = botCountX > 0 ? botSumX / botCountX : PROC_WIDTH / 2;
 
-                    // Draw club head
-                    cvCtx.fillStyle = '#FFFFFF';
-                    cvCtx.fillRect(bottomX-10, bottomY-2, 20, 8);
-                    
-                    if (Math.abs(angleDelta) > 0.05) {
-                        lastMoveTime = Date.now();
-                        statusTxt.innerText = "Tracking Shaft...";
+                        globalTopY = topY;
+                        globalBottomY = bottomY;
+
+                        // Calculate the shaft angle directly from the longest red strip's top and bottom
+                        currentShaftAngle = Math.atan2(bottomX - topX, bottomY - topY); 
+
+                        if (baseAngle === null) {
+                            baseAngle = currentShaftAngle;
+                            ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
+                            ballVelX = 0; ballVelZ = 0;
+                            lastHeadX_px = null;
+                        }
+
+                        let angleDelta = currentShaftAngle - baseAngle;
+                        let sensMulti = parseFloat(sensitivitySlider.value);
+                        targetRotZ = angleDelta * sensMulti;
+
+                        // --- DRAW DIGITAL TWIN ON CAMERA STREAM ---
+                        cvCtx.strokeStyle = '#FFFFFF';
+                        cvCtx.lineWidth = 4;
+                        cvCtx.beginPath();
+                        cvCtx.moveTo(topX, topY);
+                        cvCtx.lineTo(bottomX, bottomY);
+                        cvCtx.stroke();
+
+                        // Draw white box for club head
+                        cvCtx.fillStyle = '#FFFFFF';
+                        cvCtx.fillRect(bottomX-10, bottomY-2, 20, 8);
+                        
+                        if (Math.abs(angleDelta) > 0.05) {
+                            lastMoveTime = Date.now();
+                            statusTxt.innerText = "Tracking Red Shaft...";
+                        }
+                        debugText.innerText = "Tracking Active";
+                    } else {
+                        debugText.innerText = "Red object too short.";
                     }
-                    debugText.innerText = "Tracking Active";
                 } else {
                     debugText.innerText = `Red pixels: ${redCount} (Need >30)`;
                 }
