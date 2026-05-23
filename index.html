@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>3D Putter Simulator Pro - Camera Tracking</title>
+    <title>3D Putter Simulator Pro - Camera Tracking & Auto-Calibrate</title>
     <style>
         body { 
             margin: 0; 
@@ -45,6 +45,9 @@
             padding: 8px;
             border-radius: 8px;
             border: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
         }
         .slider-container {
             display: flex;
@@ -54,12 +57,41 @@
             font-size: 12px;
             font-weight: bold;
             color: #333;
-            margin-top: 4px;
         }
         .slider-container label { flex-shrink: 0; width: 90px; }
         input[type="range"] { flex-grow: 1; }
         .val-display { width: 35px; text-align: right; color: #e74c3c; }
         
+        .calibration-panel {
+            background: #eef2f3;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px dashed #7f8c8d;
+            font-size: 12px;
+            color: #333;
+        }
+        .cal-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 6px;
+        }
+        .cal-row input {
+            width: 60px;
+            padding: 4px;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .cal-btn {
+            background: #2980b9;
+            font-size: 14px;
+            margin-top: 8px;
+            padding: 8px;
+        }
+        .cal-btn:active { background: #1f618d; }
+
         #status { 
             font-weight: 600; 
             color: #555; 
@@ -83,7 +115,6 @@
         .dist { color: #b22222; font-size: 20px; }
         .dir { color: #2E8B57; font-size: 14px; }
         
-        /* Camera Debug View */
         #cameraContainer {
             position: absolute;
             bottom: 15px;
@@ -100,7 +131,7 @@
         #trackerCanvas {
             width: 100%;
             height: 100%;
-            transform: scaleX(-1); /* Mirror view like a selfie cam */
+            transform: scaleX(-1);
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -108,24 +139,34 @@
 <body>
 
     <div id="ui-container">
-        <div style="text-align:center; font-weight:bold; color:#333; font-size: 14px;">Place phone facing you. Putt across the camera view.</div>
+        <div style="text-align:center; font-weight:bold; color:#333; font-size: 13px;">Place phone facing you. Putt across the camera view.</div>
         
         <div class="slider-group">
             <div class="slider-container">
-                <label>Sensitivity:</label>
-                <input type="range" id="sensitivity" min="0.5" max="3.0" step="0.1" value="1.5">
-                <span id="sensValue" class="val-display">1.5x</span>
-            </div>
-            <div class="slider-container">
                 <label>Smash Factor:</label>
-                <input type="range" id="smash" min="1.0" max="1.5" step="0.01" value="1.15">
-                <span id="smashValue" class="val-display">1.15</span>
+                <input type="range" id="smash" min="0.5" max="2.5" step="0.01" value="1.00">
+                <span id="smashValue" class="val-display">1.00</span>
             </div>
             <div class="slider-container">
                 <label>Stimp (Green):</label>
-                <input type="range" id="stimp" min="6" max="14" step="0.5" value="10">
-                <span id="stimpValue" class="val-display">10</span>
+                <input type="range" id="stimp" min="4" max="20" step="0.1" value="10.0">
+                <span id="stimpValue" class="val-display">10.0</span>
             </div>
+        </div>
+
+        <div class="calibration-panel">
+            <strong>Auto-Calibration:</strong> Enter distances in yards (e.g. 5.5)
+            <div class="cal-row">
+                <span>Short Putt:</span>
+                <input type="number" id="appShort" placeholder="App Yds">
+                <input type="number" id="realShort" placeholder="Real Yds">
+            </div>
+            <div class="cal-row">
+                <span>Long Putt:</span>
+                <input type="number" id="appLong" placeholder="App Yds">
+                <input type="number" id="realLong" placeholder="Real Yds">
+            </div>
+            <button id="calcBtn" class="cal-btn">Calculate & Apply Settings</button>
         </div>
 
         <button id="startBtn">Start Camera Tracking</button>
@@ -137,7 +178,6 @@
         </div>
     </div>
 
-    <!-- PIP view for computer vision debugging -->
     <div id="cameraContainer">
         <canvas id="trackerCanvas"></canvas>
     </div>
@@ -228,7 +268,51 @@
         let lastClubPos = new THREE.Vector3();
         let currentClubPos = new THREE.Vector3();
 
-        // --- 4. CAMERA TRACKING SETUP ---
+        // --- 4. UI AND CALIBRATION LOGIC ---
+        const smashSlider = document.getElementById('smash');
+        const smashValue = document.getElementById('smashValue');
+        smashSlider.addEventListener('input', () => smashValue.innerText = parseFloat(smashSlider.value).toFixed(2));
+
+        const stimpSlider = document.getElementById('stimp');
+        const stimpValue = document.getElementById('stimpValue');
+        stimpSlider.addEventListener('input', () => stimpValue.innerText = parseFloat(stimpSlider.value).toFixed(1));
+
+        const calcBtn = document.getElementById('calcBtn');
+        calcBtn.addEventListener('click', () => {
+            let aS = parseFloat(document.getElementById('appShort').value);
+            let rS = parseFloat(document.getElementById('realShort').value);
+            let aL = parseFloat(document.getElementById('appLong').value);
+            let rL = parseFloat(document.getElementById('realLong').value);
+
+            if (aS && rS && aL && rL) {
+                // Determine the distance multiplier needed
+                let ratioShort = rS / aS;
+                let ratioLong = rL / aL;
+                let avgRatio = (ratioShort + ratioLong) / 2;
+
+                // Distribute the multiplier evenly across Smash and Stimp
+                let distributionFactor = Math.sqrt(avgRatio);
+                
+                let newSmash = 1.0 * Math.sqrt(distributionFactor); // Smash is squared in physics
+                let newStimp = 10.0 * distributionFactor;          // Stimp is linear
+
+                // Clamp limits so the sliders don't break
+                newSmash = Math.max(0.5, Math.min(2.5, newSmash));
+                newStimp = Math.max(4.0, Math.min(20.0, newStimp));
+
+                // Apply values
+                smashSlider.value = newSmash;
+                smashValue.innerText = newSmash.toFixed(2);
+                stimpSlider.value = newStimp;
+                stimpValue.innerText = newStimp.toFixed(1);
+
+                alert(`Success!\nCalibrated Smash Factor to: ${newSmash.toFixed(2)}\nCalibrated Stimp to: ${newStimp.toFixed(1)}`);
+            } else {
+                alert("Please fill out all 4 distance fields to calibrate.");
+            }
+        });
+
+        // --- 5. CAMERA TRACKING SETUP ---
         const videoElement = document.createElement('video');
         videoElement.setAttribute('playsinline', '');
         videoElement.setAttribute('autoplay', '');
@@ -236,33 +320,18 @@
         const trackerCanvas = document.getElementById('trackerCanvas');
         const ctx = trackerCanvas.getContext('2d', { willReadFrequently: true });
         
-        // Processing resolution (Keep it small for 60fps performance)
         const C_WIDTH = 160;
         const C_HEIGHT = 120;
         trackerCanvas.width = C_WIDTH;
         trackerCanvas.height = C_HEIGHT;
 
         let cameraActive = false;
-
         const startBtn = document.getElementById('startBtn');
         const statusTxt = document.getElementById('status');
         const distanceDisplay = document.getElementById('distanceDisplay');
 
-        const sensitivitySlider = document.getElementById('sensitivity');
-        const sensValue = document.getElementById('sensValue');
-        sensitivitySlider.addEventListener('input', () => sensValue.innerText = sensitivitySlider.value + "x");
-
-        const smashSlider = document.getElementById('smash');
-        const smashValue = document.getElementById('smashValue');
-        smashSlider.addEventListener('input', () => smashValue.innerText = smashSlider.value);
-
-        const stimpSlider = document.getElementById('stimp');
-        const stimpValue = document.getElementById('stimpValue');
-        stimpSlider.addEventListener('input', () => stimpValue.innerText = stimpSlider.value);
-
         startBtn.addEventListener('click', async () => {
             try {
-                // Request front-facing camera
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: "user", width: { ideal: C_WIDTH }, height: { ideal: C_HEIGHT } } 
                 });
@@ -276,15 +345,12 @@
                 };
             } catch (err) {
                 statusTxt.innerText = "Error: Allow Camera Access!";
-                console.error(err);
             }
         });
 
-        // The core Color Tracking Algorithm
         function trackRedShaft() {
             if (!cameraActive || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
-            // Draw video to invisible canvas buffer
             ctx.drawImage(videoElement, 0, 0, C_WIDTH, C_HEIGHT);
             const frame = ctx.getImageData(0, 0, C_WIDTH, C_HEIGHT);
             const data = frame.data;
@@ -292,42 +358,26 @@
             let sumX = 0;
             let count = 0;
 
-            // Loop through pixels
             for (let i = 0; i < data.length; i += 4) {
                 let r = data[i];
                 let g = data[i+1];
                 let b = data[i+2];
 
-                // THRESHOLD FOR "RED": High Red, Low Green, Low Blue
-                // Adjust these numbers if your shaft is lighter/darker
                 if (r > 130 && r > g * 1.6 && r > b * 1.6) {
-                    // Pixel matches! Get its X coordinate
                     let x = (i / 4) % C_WIDTH;
                     sumX += x;
                     count++;
-
-                    // Color it bright pink in the PIP view for debugging
-                    data[i] = 255;   // R
-                    data[i+1] = 0;   // G
-                    data[i+2] = 255; // B
+                    data[i] = 255; data[i+1] = 0; data[i+2] = 255;
                 }
             }
 
-            // Put modified image back on the canvas so user can see what's tracked
             ctx.putImageData(frame, 0, 0);
 
-            // If we found enough red pixels, move the club
             if (count > 15) {
                 let avgX = sumX / count;
-                
-                // Map the screen X position (0 to 160) to a swing angle (-1 to 1)
-                // We invert it since the front camera acts like a mirror
+                // Base direct mapping without sensitivity multiplier
                 let normalizedX = -1 * (((avgX / C_WIDTH) - 0.5) * 2); 
-                
-                let sensMulti = parseFloat(sensitivitySlider.value);
-                
-                // Set the target 3D rotation based on where the red shaft is on screen
-                targetRotZ = normalizedX * sensMulti * 0.8; // 0.8 is a max angle multiplier
+                targetRotZ = normalizedX * 0.8; 
             }
         }
 
@@ -342,14 +392,12 @@
             return { yards, feet };
         }
 
-        // --- 5. ANIMATION & PHYSICS ENGINE ---
+        // --- 6. ANIMATION & PHYSICS ENGINE ---
         function animate() {
             requestAnimationFrame(animate);
             
-            // 1. Run the vision tracker
             trackRedShaft();
 
-            // 2. Smoothly rotate the 3D mannequin to match the tracked target
             currRotZ += (targetRotZ - currRotZ) * 0.15;
             pivot.rotation.z = currRotZ;
 
@@ -357,13 +405,11 @@
             let currentStimp = parseFloat(stimpSlider.value);
             let dynamicFriction = 0.0012 * (10 / currentStimp); 
 
-            // 3. COLLISION DETECTION
             if (ballVelX === 0 && ballVelZ === 0) {
                 let faceWorldX = currentClubPos.x - 0.2; 
                 let lastFaceWorldX = lastClubPos.x - 0.2;
                 let ballRightEdge = ball.position.x + ballRadius;
 
-                // Check if club passed through the ball
                 if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
                     let clubSpeed = Math.abs(currentClubPos.x - lastClubPos.x);
                     
@@ -376,7 +422,6 @@
                         let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
                         distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
                         
-                        // Auto-reset ball after 4 seconds
                         setTimeout(() => {
                             ballVelX = 0; ballVelZ = 0;
                             ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
@@ -387,7 +432,6 @@
             
             lastClubPos.copy(currentClubPos);
 
-            // 4. GREEN ROLLING PHYSICS
             if (Math.abs(ballVelX) > 0 || Math.abs(ballVelZ) > 0) {
                 ball.position.x += ballVelX;
                 ball.position.z += ballVelZ;
