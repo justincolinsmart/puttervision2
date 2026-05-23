@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>3D Putter Simulator Pro - Bounding Box Tracking</title>
+    <title>3D Putter Simulator Pro - Camera Tracking</title>
     <style>
         body { 
             margin: 0; 
@@ -31,7 +31,7 @@
             padding: 10px 20px; 
             font-size: 16px; 
             font-weight: bold;
-            background: #1E90FF; 
+            background: #e74c3c; 
             color: white; 
             border: none; 
             border-radius: 8px; 
@@ -39,7 +39,7 @@
             width: 100%;
             transition: 0.2s;
         }
-        button:active { background: #187bcd; }
+        button:active { background: #c0392b; }
         .slider-group {
             background: #f9f9f9;
             padding: 8px;
@@ -58,7 +58,7 @@
         }
         .slider-container label { flex-shrink: 0; width: 90px; }
         input[type="range"] { flex-grow: 1; }
-        .val-display { width: 45px; text-align: right; color: #1E90FF; font-family: monospace; }
+        .val-display { width: 35px; text-align: right; color: #e74c3c; }
         
         #status { 
             font-weight: 600; 
@@ -75,7 +75,7 @@
             background: #f0f8ff;
             padding: 8px;
             border-radius: 8px;
-            border: 2px solid #1E90FF;
+            border: 2px solid #e74c3c;
             display: flex;
             flex-direction: column;
             gap: 4px;
@@ -83,30 +83,24 @@
         .dist { color: #b22222; font-size: 20px; }
         .dir { color: #2E8B57; font-size: 14px; }
         
-        /* Debug Camera View */
-        #cv-container {
+        /* Camera Debug View */
+        #cameraContainer {
             position: absolute;
             bottom: 15px;
             right: 15px;
-            width: 160px;
-            height: 213px; 
-            background: #000;
+            width: 120px;
+            height: 90px;
             border: 3px solid #fff;
             border-radius: 8px;
             overflow: hidden;
             z-index: 20;
+            background: #000;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
-        #cv-canvas {
+        #trackerCanvas {
             width: 100%;
             height: 100%;
-            display: block;
-        }
-        #debug-text {
-            position: absolute;
-            top: 2px; left: 2px;
-            color: lime; font-size: 10px; font-weight: bold;
-            text-shadow: 1px 1px 0 #000;
+            transform: scaleX(-1); /* Mirror view like a selfie cam */
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -114,11 +108,13 @@
 <body>
 
     <div id="ui-container">
+        <div style="text-align:center; font-weight:bold; color:#333; font-size: 14px;">Place phone facing you. Putt across the camera view.</div>
+        
         <div class="slider-group">
             <div class="slider-container">
-                <label>3D Swing Scale:</label>
-                <input type="range" id="sensitivity" min="0.5" max="5.0" step="0.1" value="2.5">
-                <span id="sensValue" class="val-display">2.5x</span>
+                <label>Sensitivity:</label>
+                <input type="range" id="sensitivity" min="0.5" max="3.0" step="0.1" value="1.5">
+                <span id="sensValue" class="val-display">1.5x</span>
             </div>
             <div class="slider-container">
                 <label>Smash Factor:</label>
@@ -132,27 +128,22 @@
             </div>
         </div>
 
-        <button id="startBtn">Start Camera</button>
-        <button id="calibrateBtn" style="display:none; background:#dc3545;">Reset Ball & Tracking</button>
-        <div id="status">Waiting to start...</div>
+        <button id="startBtn">Start Camera Tracking</button>
+        <div id="status">Waiting for camera...</div>
         
         <div class="data-display">
             <div id="distanceDisplay" class="dist">Dist: 0y 0f</div>
-            <div id="directionDisplay" class="dir">Speed: 0.00 m/s</div>
+            <div id="directionDisplay" class="dir">Face: Locked Square</div>
         </div>
     </div>
 
-    <video id="video-stream" autoplay playsinline muted style="display:none;"></video>
-    
-    <div id="cv-container">
-        <canvas id="cv-canvas"></canvas>
-        <div id="debug-text">Camera Off</div>
+    <!-- PIP view for computer vision debugging -->
+    <div id="cameraContainer">
+        <canvas id="trackerCanvas"></canvas>
     </div>
 
     <script>
-        // ==========================================
-        // 1. SETUP THREE.JS SCENE (Visualizer)
-        // ==========================================
+        // --- 1. SETUP THREE.JS SCENE ---
         const scene = new THREE.Scene();
         
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -176,27 +167,28 @@
         gridHelper.material.transparent = true;
         scene.add(gridHelper);
 
-        // ==========================================
-        // 2. BUILD THE 3D MANNEQUIN 
-        // ==========================================
+        // --- 2. BUILD THE 3D MANNEQUIN ---
         const skinMat = new THREE.MeshLambertMaterial({ color: 0xffccaa });
-        const shirtMat = new THREE.MeshLambertMaterial({ color: 0x2196F3 });
+        const shirtMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
         const pantsMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
-        const shaftMat = new THREE.MeshLambertMaterial({ color: 0xcc0000 }); 
-        const gripMat = new THREE.MeshLambertMaterial({ color: 0xffffff }); 
-        const collarMat = new THREE.MeshLambertMaterial({ color: 0x00cccc }); 
-        const headMat = new THREE.MeshLambertMaterial({ color: 0x222222 }); 
+        const clubMat = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
+        const gripMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
 
         const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
-        leftLeg.position.set(-0.4, 0, 0); scene.add(leftLeg);
+        leftLeg.position.set(-0.4, 0, 0); 
+        scene.add(leftLeg);
+        
         const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
-        rightLeg.position.set(0.4, 0, 0); scene.add(rightLeg);
+        rightLeg.position.set(0.4, 0, 0); 
+        scene.add(rightLeg);
 
         const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.8, 0.6), shirtMat);
-        torso.position.set(0, 1.9, 0); scene.add(torso);
+        torso.position.set(0, 1.9, 0);
+        scene.add(torso);
 
         const head = new THREE.Mesh(new THREE.SphereGeometry(0.4), skinMat);
-        head.position.set(0, 3.2, 0); scene.add(head);
+        head.position.set(0, 3.2, 0);
+        scene.add(head);
 
         const pivot = new THREE.Group();
         pivot.position.set(0, 2.5, 0.4); 
@@ -204,54 +196,57 @@
         scene.add(pivot);
 
         const arms = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 2), skinMat);
-        arms.position.set(0, -1, 0); pivot.add(arms);
+        arms.position.set(0, -1, 0);
+        pivot.add(arms);
 
         const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.8), gripMat);
-        grip.position.set(0, -2.2, 0); pivot.add(grip);
-        
-        const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.1), collarMat);
-        collar.position.set(0, -2.65, 0); pivot.add(collar);
+        grip.position.set(0, -2.2, 0);
+        pivot.add(grip);
 
-        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.4), shaftMat);
-        shaft.position.set(0, -3.9, 0); pivot.add(shaft);
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 2.5), clubMat);
+        shaft.position.set(0, -3.8, 0);
+        pivot.add(shaft);
 
-        const clubHead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.35), headMat);
-        clubHead.position.set(0.15, -5.15, 0.05); pivot.add(clubHead);
+        const clubHead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.3), clubMat);
+        clubHead.position.set(0.15, -5, 0.05); 
+        pivot.add(clubHead);
 
         const ballRadius = 0.1;
-        const ball = new THREE.Mesh(new THREE.SphereGeometry(ballRadius, 32, 32), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+        const ball = new THREE.Mesh(
+            new THREE.SphereGeometry(ballRadius, 32, 32), 
+            new THREE.MeshLambertMaterial({ color: 0xffffff })
+        );
         ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
         scene.add(ball);
 
-        // ==========================================
-        // 3. VISION TRACKING ENGINE (Speed Trap + Bounding Box)
-        // ==========================================
-        const video = document.getElementById('video-stream');
-        const cvCanvas = document.getElementById('cv-canvas');
-        const cvCtx = cvCanvas.getContext('2d', { willReadFrequently: true });
-        const debugText = document.getElementById('debug-text');
-
-        const PROC_WIDTH = 240; 
-        const PROC_HEIGHT = 320; 
+        // --- 3. STATE VARIABLES ---
+        let targetRotZ = 0;
+        let currRotZ = 0;
         
-        // Tracking Variables
-        let lastBlobPos = null;
-        let lastFrameTime = performance.now();
-        const SEARCH_RADIUS = 60; // Bounding box size in pixels
-        const MID_X = PROC_WIDTH / 2;
-        
-        let targetRotZ = 0; 
-        let currRotZ = 0;   
-        let currRotY = 0;
-
         let ballVelX = 0;
         let ballVelZ = 0;
+        let lastClubPos = new THREE.Vector3();
+        let currentClubPos = new THREE.Vector3();
+
+        // --- 4. CAMERA TRACKING SETUP ---
+        const videoElement = document.createElement('video');
+        videoElement.setAttribute('playsinline', '');
+        videoElement.setAttribute('autoplay', '');
+        
+        const trackerCanvas = document.getElementById('trackerCanvas');
+        const ctx = trackerCanvas.getContext('2d', { willReadFrequently: true });
+        
+        // Processing resolution (Keep it small for 60fps performance)
+        const C_WIDTH = 160;
+        const C_HEIGHT = 120;
+        trackerCanvas.width = C_WIDTH;
+        trackerCanvas.height = C_HEIGHT;
+
+        let cameraActive = false;
 
         const startBtn = document.getElementById('startBtn');
-        const calibrateBtn = document.getElementById('calibrateBtn');
         const statusTxt = document.getElementById('status');
         const distanceDisplay = document.getElementById('distanceDisplay');
-        const directionDisplay = document.getElementById('directionDisplay');
 
         const sensitivitySlider = document.getElementById('sensitivity');
         const sensValue = document.getElementById('sensValue');
@@ -267,152 +262,75 @@
 
         startBtn.addEventListener('click', async () => {
             try {
+                // Request front-facing camera
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user', width: { ideal: PROC_WIDTH }, height: { ideal: PROC_HEIGHT } } 
+                    video: { facingMode: "user", width: { ideal: C_WIDTH }, height: { ideal: C_HEIGHT } } 
                 });
-                video.srcObject = stream;
-                video.play();
+                videoElement.srcObject = stream;
                 
-                video.onloadedmetadata = () => {
-                    cvCanvas.width = PROC_WIDTH;
-                    cvCanvas.height = PROC_HEIGHT;
-                    startBtn.style.display = 'none'; 
-                    calibrateBtn.style.display = 'block';
-                    statusTxt.innerText = "Camera Active. Put red shaft in view.";
-                    lastFrameTime = performance.now();
-                    trackFrame();
+                videoElement.onloadedmetadata = () => {
+                    videoElement.play();
+                    cameraActive = true;
+                    startBtn.style.display = 'none';
+                    statusTxt.innerText = "Tracking Active! Move red shaft.";
                 };
             } catch (err) {
-                statusTxt.innerText = "Camera error: " + err.message;
+                statusTxt.innerText = "Error: Allow Camera Access!";
+                console.error(err);
             }
         });
 
-        calibrateBtn.addEventListener('click', () => {
-            lastBlobPos = null; 
-            ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
-            ballVelX = 0;
-            ballVelZ = 0;
-            statusTxt.innerText = "Tracking and Ball Reset";
-            distanceDisplay.innerText = `Dist: 0y 0f`;
-            directionDisplay.innerText = "Speed: 0.00 m/s";
-        });
+        // The core Color Tracking Algorithm
+        function trackRedShaft() {
+            if (!cameraActive || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
-        function trackFrame() {
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                cvCtx.drawImage(video, 0, 0, PROC_WIDTH, PROC_HEIGHT);
-                const frameData = cvCtx.getImageData(0, 0, PROC_WIDTH, PROC_HEIGHT);
-                const data = frameData.data;
+            // Draw video to invisible canvas buffer
+            ctx.drawImage(videoElement, 0, 0, C_WIDTH, C_HEIGHT);
+            const frame = ctx.getImageData(0, 0, C_WIDTH, C_HEIGHT);
+            const data = frame.data;
 
-                let now = performance.now();
-                let dt = (now - lastFrameTime) / 1000;
-                lastFrameTime = now;
+            let sumX = 0;
+            let count = 0;
 
-                let redSumX = 0, redSumY = 0, redCount = 0;
+            // Loop through pixels
+            for (let i = 0; i < data.length; i += 4) {
+                let r = data[i];
+                let g = data[i+1];
+                let b = data[i+2];
 
-                // Process pixels
-                for (let i = 0; i < data.length; i += 4) {
-                    let px = (i / 4) % PROC_WIDTH;
-                    let py = Math.floor((i / 4) / PROC_WIDTH);
+                // THRESHOLD FOR "RED": High Red, Low Green, Low Blue
+                // Adjust these numbers if your shaft is lighter/darker
+                if (r > 130 && r > g * 1.6 && r > b * 1.6) {
+                    // Pixel matches! Get its X coordinate
+                    let x = (i / 4) % C_WIDTH;
+                    sumX += x;
+                    count++;
 
-                    // 1. BOUNDING BOX OPTIMIZATION
-                    // If we have a locked target, ignore everything outside the search radius
-                    if (lastBlobPos) {
-                        if (Math.abs(px - lastBlobPos.x) > SEARCH_RADIUS || Math.abs(py - lastBlobPos.y) > SEARCH_RADIUS) {
-                            data[i] = 0; data[i+1] = 0; data[i+2] = 0;
-                            continue; 
-                        }
-                    }
-                    
-                    let r = data[i], g = data[i+1], b = data[i+2];
-
-                    // Detect Red Shaft using RGB ratios
-                    if (r > 90 && r > g * 1.5 && r > b * 1.5) {
-                        redSumX += px;
-                        redSumY += py;
-                        redCount++;
-                        
-                        // Highlight detected red pixels in pure red
-                        data[i] = 255; data[i+1] = 0; data[i+2] = 0;
-                    } else {
-                        // Make all non-matching pixels entirely black
-                        data[i] = 0; data[i+1] = 0; data[i+2] = 0;
-                    }
+                    // Color it bright pink in the PIP view for debugging
+                    data[i] = 255;   // R
+                    data[i+1] = 0;   // G
+                    data[i+2] = 255; // B
                 }
+            }
+
+            // Put modified image back on the canvas so user can see what's tracked
+            ctx.putImageData(frame, 0, 0);
+
+            // If we found enough red pixels, move the club
+            if (count > 15) {
+                let avgX = sumX / count;
                 
-                // Write pixels back to canvas
-                cvCtx.putImageData(frameData, 0, 0);
-
-                // Draw Center Line (Speed Trap Wire)
-                cvCtx.strokeStyle = 'rgba(255, 255, 0, 0.4)';
-                cvCtx.beginPath();
-                cvCtx.moveTo(MID_X, 0);
-                cvCtx.lineTo(MID_X, PROC_HEIGHT);
-                cvCtx.stroke();
-
-                if (redCount > 10) {
-                    let cx = redSumX / redCount;
-                    let cy = redSumY / redCount;
-
-                    // Draw Bounding Box and Centroid
-                    cvCtx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
-                    cvCtx.lineWidth = 2;
-                    cvCtx.strokeRect(cx - SEARCH_RADIUS, cy - SEARCH_RADIUS, SEARCH_RADIUS * 2, SEARCH_RADIUS * 2);
-                    cvCtx.fillStyle = '#00ff00';
-                    cvCtx.beginPath();
-                    cvCtx.arc(cx, cy, 4, 0, 2*Math.PI);
-                    cvCtx.fill();
-
-                    // --- 1. CONTINUOUS AVATAR ROTATION ---
-                    // Map the X position of the centroid to the 3D rotation
-                    let sensMulti = parseFloat(sensitivitySlider.value);
-                    targetRotZ = (cx - MID_X) * 0.005 * sensMulti;
-
-                    // --- 2. SPEED TRAP COLLISION LOGIC ---
-                    if (lastBlobPos && dt > 0) {
-                        // Assuming Right-Handed golfer: swing moves from Right (High X) to Left (Low X)
-                        let crossed = (lastBlobPos.x > MID_X && cx <= MID_X);
-
-                        if (crossed) {
-                            let distPixels = Math.abs(cx - lastBlobPos.x);
-                            let speedPixels = distPixels / dt;
-                            let rawSpeedMs = speedPixels * 0.003; // Calibrate pixel speed to m/s
-                            
-                            // Prevent micro-jitters from triggering a hit
-                            if (rawSpeedMs > 0.1) {
-                                let smash = parseFloat(smashSlider.value);
-                                let physicsScale = 0.02; // Scaled specifically for this 3D environment
-                                
-                                ballVelX = -rawSpeedMs * smash * physicsScale; 
-                                ballVelZ = currRotY * rawSpeedMs * smash * physicsScale; 
-
-                                // Calculate the visual readout
-                                let currentStimp = parseFloat(stimpSlider.value);
-                                let dynamicFriction = 0.0012 * (10 / currentStimp); 
-                                let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
-                                
-                                distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
-                                directionDisplay.innerText = `Speed: ${rawSpeedMs.toFixed(2)} m/s`;
-                                statusTxt.innerText = "IMPACT!";
-                            }
-                        } else {
-                            statusTxt.innerText = "Tracking Shaft...";
-                        }
-                    }
-                    
-                    lastBlobPos = {x: cx, y: cy};
-                    debugText.innerText = "Tracking Active";
-                } else {
-                    lastBlobPos = null;
-                    targetRotZ = 0; // Return club to center if lost
-                    debugText.innerText = `Red pixels: ${redCount}`;
-                }
+                // Map the screen X position (0 to 160) to a swing angle (-1 to 1)
+                // We invert it since the front camera acts like a mirror
+                let normalizedX = -1 * (((avgX / C_WIDTH) - 0.5) * 2); 
+                
+                let sensMulti = parseFloat(sensitivitySlider.value);
+                
+                // Set the target 3D rotation based on where the red shaft is on screen
+                targetRotZ = normalizedX * sensMulti * 0.8; // 0.8 is a max angle multiplier
             }
-            requestAnimationFrame(trackFrame); 
         }
 
-        // ==========================================
-        // 4. PHYSICS ENGINE & ANIMATION
-        // ==========================================
         function calculateDistance(velX, velZ, friction) {
             let v0 = Math.sqrt(velX * velX + velZ * velZ);
             let distanceUnits = (v0 * v0) / (2 * friction);
@@ -424,23 +342,58 @@
             return { yards, feet };
         }
 
+        // --- 5. ANIMATION & PHYSICS ENGINE ---
         function animate() {
             requestAnimationFrame(animate);
             
-            // Smoothly rotate the mannequin to match targetRotZ
-            currRotZ += (targetRotZ - currRotZ) * 0.2;
-            pivot.rotation.z = currRotZ;
-            pivot.rotation.y = currRotY;
+            // 1. Run the vision tracker
+            trackRedShaft();
 
+            // 2. Smoothly rotate the 3D mannequin to match the tracked target
+            currRotZ += (targetRotZ - currRotZ) * 0.15;
+            pivot.rotation.z = currRotZ;
+
+            clubHead.getWorldPosition(currentClubPos);
             let currentStimp = parseFloat(stimpSlider.value);
             let dynamicFriction = 0.0012 * (10 / currentStimp); 
 
-            // Move the ball if velocity exists
+            // 3. COLLISION DETECTION
+            if (ballVelX === 0 && ballVelZ === 0) {
+                let faceWorldX = currentClubPos.x - 0.2; 
+                let lastFaceWorldX = lastClubPos.x - 0.2;
+                let ballRightEdge = ball.position.x + ballRadius;
+
+                // Check if club passed through the ball
+                if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
+                    let clubSpeed = Math.abs(currentClubPos.x - lastClubPos.x);
+                    
+                    if (clubSpeed > 0.005) { 
+                        let smash = parseFloat(smashSlider.value);
+                        let physicsScale = 1.5; 
+                        
+                        ballVelX = -clubSpeed * smash * physicsScale; 
+                        
+                        let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
+                        distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
+                        
+                        // Auto-reset ball after 4 seconds
+                        setTimeout(() => {
+                            ballVelX = 0; ballVelZ = 0;
+                            ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
+                        }, 4000);
+                    }
+                }
+            }
+            
+            lastClubPos.copy(currentClubPos);
+
+            // 4. GREEN ROLLING PHYSICS
             if (Math.abs(ballVelX) > 0 || Math.abs(ballVelZ) > 0) {
                 ball.position.x += ballVelX;
                 ball.position.z += ballVelZ;
                 
                 let speed = Math.sqrt(ballVelX * ballVelX + ballVelZ * ballVelZ);
+                
                 if (speed > dynamicFriction) {
                     let dropX = (Math.abs(ballVelX) / speed) * dynamicFriction;
                     let dropZ = (Math.abs(ballVelZ) / speed) * dynamicFriction;
@@ -458,6 +411,7 @@
             renderer.render(scene, camera);
         }
         
+        clubHead.getWorldPosition(lastClubPos);
         animate();
 
         window.addEventListener('resize', () => {
