@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>3D Putter Simulator Pro - Red Shaft Tracking</title>
+    <title>3D Putter Simulator Pro - Bounding Box Tracking</title>
     <style>
         body { 
             margin: 0; 
@@ -132,13 +132,13 @@
             </div>
         </div>
 
-        <button id="startBtn">Start & Calibrate Camera</button>
-        <button id="calibrateBtn" style="display:none; background:#555;">Recalibrate Center</button>
+        <button id="startBtn">Start Camera</button>
+        <button id="calibrateBtn" style="display:none; background:#dc3545;">Reset Ball & Tracking</button>
         <div id="status">Waiting to start...</div>
         
         <div class="data-display">
             <div id="distanceDisplay" class="dist">Dist: 0y 0f</div>
-            <div id="directionDisplay" class="dir">Path: --</div>
+            <div id="directionDisplay" class="dir">Speed: 0.00 m/s</div>
         </div>
     </div>
 
@@ -224,7 +224,7 @@
         scene.add(ball);
 
         // ==========================================
-        // 3. VISION TRACKING ENGINE
+        // 3. VISION TRACKING ENGINE (Speed Trap + Bounding Box)
         // ==========================================
         const video = document.getElementById('video-stream');
         const cvCanvas = document.getElementById('cv-canvas');
@@ -234,25 +234,18 @@
         const PROC_WIDTH = 240; 
         const PROC_HEIGHT = 320; 
         
-        let baseAngle = null; 
-        let currentShaftAngle = 0;
-        
-        // Tracking the top and bottom bounds of the red shaft
-        let globalTopY = 0;
-        let globalBottomY = 0; 
-        let lastHeadX_px = null; 
+        // Tracking Variables
+        let lastBlobPos = null;
+        let lastFrameTime = performance.now();
+        const SEARCH_RADIUS = 60; // Bounding box size in pixels
+        const MID_X = PROC_WIDTH / 2;
         
         let targetRotZ = 0; 
         let currRotZ = 0;   
         let currRotY = 0;
 
-        let lastMoveTime = Date.now(); 
-        const RESET_DELAY = 3000;    
-
         let ballVelX = 0;
         let ballVelZ = 0;
-        let lastClubPos = new THREE.Vector3();
-        let currentClubPos = new THREE.Vector3();
 
         const startBtn = document.getElementById('startBtn');
         const calibrateBtn = document.getElementById('calibrateBtn');
@@ -285,7 +278,8 @@
                     cvCanvas.height = PROC_HEIGHT;
                     startBtn.style.display = 'none'; 
                     calibrateBtn.style.display = 'block';
-                    statusTxt.innerText = "Camera Active. Stand still to calibrate.";
+                    statusTxt.innerText = "Camera Active. Put red shaft in view.";
+                    lastFrameTime = performance.now();
                     trackFrame();
                 };
             } catch (err) {
@@ -294,9 +288,13 @@
         });
 
         calibrateBtn.addEventListener('click', () => {
-            baseAngle = null; 
-            lastMoveTime = Date.now();
-            statusTxt.innerText = "Center Re-Calibrated";
+            lastBlobPos = null; 
+            ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
+            ballVelX = 0;
+            ballVelZ = 0;
+            statusTxt.innerText = "Tracking and Ball Reset";
+            distanceDisplay.innerText = `Dist: 0y 0f`;
+            directionDisplay.innerText = "Speed: 0.00 m/s";
         });
 
         function trackFrame() {
@@ -305,23 +303,32 @@
                 const frameData = cvCtx.getImageData(0, 0, PROC_WIDTH, PROC_HEIGHT);
                 const data = frameData.data;
 
-                let redCount = 0;
-                
-                // Track sum of X coordinates for red pixels in each row to find the center line
-                let rowRedCount = new Int32Array(PROC_HEIGHT);
-                let rowRedSumX = new Float32Array(PROC_HEIGHT);
+                let now = performance.now();
+                let dt = (now - lastFrameTime) / 1000;
+                lastFrameTime = now;
 
-                // Process all pixels
+                let redSumX = 0, redSumY = 0, redCount = 0;
+
+                // Process pixels
                 for (let i = 0; i < data.length; i += 4) {
                     let px = (i / 4) % PROC_WIDTH;
                     let py = Math.floor((i / 4) / PROC_WIDTH);
+
+                    // 1. BOUNDING BOX OPTIMIZATION
+                    // If we have a locked target, ignore everything outside the search radius
+                    if (lastBlobPos) {
+                        if (Math.abs(px - lastBlobPos.x) > SEARCH_RADIUS || Math.abs(py - lastBlobPos.y) > SEARCH_RADIUS) {
+                            data[i] = 0; data[i+1] = 0; data[i+2] = 0;
+                            continue; 
+                        }
+                    }
                     
                     let r = data[i], g = data[i+1], b = data[i+2];
 
                     // Detect Red Shaft using RGB ratios
                     if (r > 90 && r > g * 1.5 && r > b * 1.5) {
-                        rowRedCount[py]++;
-                        rowRedSumX[py] += px;
+                        redSumX += px;
+                        redSumY += py;
                         redCount++;
                         
                         // Highlight detected red pixels in pure red
@@ -335,76 +342,69 @@
                 // Write pixels back to canvas
                 cvCtx.putImageData(frameData, 0, 0);
 
-                if (redCount > 30) {
-                    // Find the highest (topY) and lowest (bottomY) row that has a meaningful amount of red
-                    let topY = -1;
-                    let bottomY = -1;
+                // Draw Center Line (Speed Trap Wire)
+                cvCtx.strokeStyle = 'rgba(255, 255, 0, 0.4)';
+                cvCtx.beginPath();
+                cvCtx.moveTo(MID_X, 0);
+                cvCtx.lineTo(MID_X, PROC_HEIGHT);
+                cvCtx.stroke();
 
-                    for (let y = 0; y < PROC_HEIGHT; y++) {
-                        if (rowRedCount[y] > 2) { // Threshold to ignore random single-pixel noise
-                            if (topY === -1) topY = y;
-                            bottomY = y;
+                if (redCount > 10) {
+                    let cx = redSumX / redCount;
+                    let cy = redSumY / redCount;
+
+                    // Draw Bounding Box and Centroid
+                    cvCtx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
+                    cvCtx.lineWidth = 2;
+                    cvCtx.strokeRect(cx - SEARCH_RADIUS, cy - SEARCH_RADIUS, SEARCH_RADIUS * 2, SEARCH_RADIUS * 2);
+                    cvCtx.fillStyle = '#00ff00';
+                    cvCtx.beginPath();
+                    cvCtx.arc(cx, cy, 4, 0, 2*Math.PI);
+                    cvCtx.fill();
+
+                    // --- 1. CONTINUOUS AVATAR ROTATION ---
+                    // Map the X position of the centroid to the 3D rotation
+                    let sensMulti = parseFloat(sensitivitySlider.value);
+                    targetRotZ = (cx - MID_X) * 0.005 * sensMulti;
+
+                    // --- 2. SPEED TRAP COLLISION LOGIC ---
+                    if (lastBlobPos && dt > 0) {
+                        // Assuming Right-Handed golfer: swing moves from Right (High X) to Left (Low X)
+                        let crossed = (lastBlobPos.x > MID_X && cx <= MID_X);
+
+                        if (crossed) {
+                            let distPixels = Math.abs(cx - lastBlobPos.x);
+                            let speedPixels = distPixels / dt;
+                            let rawSpeedMs = speedPixels * 0.003; // Calibrate pixel speed to m/s
+                            
+                            // Prevent micro-jitters from triggering a hit
+                            if (rawSpeedMs > 0.1) {
+                                let smash = parseFloat(smashSlider.value);
+                                let physicsScale = 0.02; // Scaled specifically for this 3D environment
+                                
+                                ballVelX = -rawSpeedMs * smash * physicsScale; 
+                                ballVelZ = currRotY * rawSpeedMs * smash * physicsScale; 
+
+                                // Calculate the visual readout
+                                let currentStimp = parseFloat(stimpSlider.value);
+                                let dynamicFriction = 0.0012 * (10 / currentStimp); 
+                                let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
+                                
+                                distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
+                                directionDisplay.innerText = `Speed: ${rawSpeedMs.toFixed(2)} m/s`;
+                                statusTxt.innerText = "IMPACT!";
+                            }
+                        } else {
+                            statusTxt.innerText = "Tracking Shaft...";
                         }
                     }
-
-                    // If we found a valid vertical strip
-                    if (topY !== -1 && bottomY !== -1 && (bottomY - topY) > 20) {
-                        
-                        // Average the top 10% to find a stable top X coordinate
-                        let topSumX = 0, topCountX = 0;
-                        for (let y = topY; y < topY + 10 && y <= bottomY; y++) {
-                            topSumX += rowRedSumX[y];
-                            topCountX += rowRedCount[y];
-                        }
-                        let topX = topCountX > 0 ? topSumX / topCountX : PROC_WIDTH / 2;
-
-                        // Average the bottom 10% to find a stable bottom X coordinate (the club head)
-                        let botSumX = 0, botCountX = 0;
-                        for (let y = bottomY - 10; y <= bottomY && y >= topY; y--) {
-                            botSumX += rowRedSumX[y];
-                            botCountX += rowRedCount[y];
-                        }
-                        let bottomX = botCountX > 0 ? botSumX / botCountX : PROC_WIDTH / 2;
-
-                        globalTopY = topY;
-                        globalBottomY = bottomY;
-
-                        // Calculate the shaft angle directly from the longest red strip's top and bottom
-                        currentShaftAngle = Math.atan2(bottomX - topX, bottomY - topY); 
-
-                        if (baseAngle === null) {
-                            baseAngle = currentShaftAngle;
-                            ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
-                            ballVelX = 0; ballVelZ = 0;
-                            lastHeadX_px = null;
-                        }
-
-                        let angleDelta = currentShaftAngle - baseAngle;
-                        let sensMulti = parseFloat(sensitivitySlider.value);
-                        targetRotZ = angleDelta * sensMulti;
-
-                        // --- DRAW DIGITAL TWIN ON CAMERA STREAM ---
-                        cvCtx.strokeStyle = '#FFFFFF';
-                        cvCtx.lineWidth = 4;
-                        cvCtx.beginPath();
-                        cvCtx.moveTo(topX, topY);
-                        cvCtx.lineTo(bottomX, bottomY);
-                        cvCtx.stroke();
-
-                        // Draw white box for club head
-                        cvCtx.fillStyle = '#FFFFFF';
-                        cvCtx.fillRect(bottomX-10, bottomY-2, 20, 8);
-                        
-                        if (Math.abs(angleDelta) > 0.05) {
-                            lastMoveTime = Date.now();
-                            statusTxt.innerText = "Tracking Red Shaft...";
-                        }
-                        debugText.innerText = "Tracking Active";
-                    } else {
-                        debugText.innerText = "Red object too short.";
-                    }
+                    
+                    lastBlobPos = {x: cx, y: cy};
+                    debugText.innerText = "Tracking Active";
                 } else {
-                    debugText.innerText = `Red pixels: ${redCount} (Need >30)`;
+                    lastBlobPos = null;
+                    targetRotZ = 0; // Return club to center if lost
+                    debugText.innerText = `Red pixels: ${redCount}`;
                 }
             }
             requestAnimationFrame(trackFrame); 
@@ -426,64 +426,16 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            const now = Date.now();
             
-            if (now - lastMoveTime > RESET_DELAY && baseAngle !== null) {
-                baseAngle = currentShaftAngle;
-                targetRotZ = 0;
-                lastHeadX_px = null; 
-                statusTxt.innerText = "Idle - Center Calibrated";
-                if (ballVelX === 0 && ballVelZ === 0) {
-                    ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
-                }
-            }
-
+            // Smoothly rotate the mannequin to match targetRotZ
             currRotZ += (targetRotZ - currRotZ) * 0.2;
             pivot.rotation.z = currRotZ;
             pivot.rotation.y = currRotY;
 
-            clubHead.getWorldPosition(currentClubPos);
-
             let currentStimp = parseFloat(stimpSlider.value);
             let dynamicFriction = 0.0012 * (10 / currentStimp); 
 
-            if (ballVelX === 0 && ballVelZ === 0 && baseAngle !== null) {
-                let faceWorldX = currentClubPos.x - 0.2; 
-                let lastFaceWorldX = lastClubPos.x - 0.2;
-                let ballRightEdge = ball.position.x + ballRadius;
-
-                if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
-                    if (lastHeadX_px !== null) {
-                        let visibleShaftLength_px = globalBottomY - globalTopY;
-                        if (visibleShaftLength_px < 20) visibleShaftLength_px = 20;
-
-                        const headX_px = PROC_WIDTH / 2 + visibleShaftLength_px * Math.sin(currentShaftAngle);
-                        const deltaX_px = Math.abs(headX_px - lastHeadX_px);
-                        
-                        let physicalInchesMoved = (deltaX_px / visibleShaftLength_px) * 20;
-                        let clubSpeed = physicalInchesMoved * 0.05; 
-                        
-                        if (clubSpeed > 0.005) { 
-                            let smash = parseFloat(smashSlider.value);
-                            let physicsScale = 1.3; 
-                            
-                            ballVelX = -clubSpeed * smash * physicsScale; 
-                            ballVelZ = currRotY * clubSpeed * smash * physicsScale; 
-
-                            let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
-                            distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
-                            directionDisplay.innerText = "Face: Square"; 
-                        }
-                    }
-                }
-                
-                let visibleShaftLength_px = globalBottomY - globalTopY;
-                if (visibleShaftLength_px < 20) visibleShaftLength_px = 20;
-                lastHeadX_px = PROC_WIDTH / 2 + visibleShaftLength_px * Math.sin(currentShaftAngle);
-            }
-            
-            lastClubPos.copy(currentClubPos);
-
+            // Move the ball if velocity exists
             if (Math.abs(ballVelX) > 0 || Math.abs(ballVelZ) > 0) {
                 ball.position.x += ballVelX;
                 ball.position.z += ballVelZ;
@@ -506,7 +458,6 @@
             renderer.render(scene, camera);
         }
         
-        clubHead.getWorldPosition(lastClubPos);
         animate();
 
         window.addEventListener('resize', () => {
