@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>3D Putter Simulator Pro - Camera Tracking & Auto-Calibrate</title>
+    <title>3D Putter Simulator Pro</title>
     <style>
         body { 
             margin: 0; 
@@ -61,43 +61,83 @@
         .slider-container label { flex-shrink: 0; width: 90px; }
         input[type="range"] { flex-grow: 1; }
         .val-display { width: 45px; text-align: right; color: #e74c3c; }
-        
-        .calibration-panel {
-            background: #eef2f3;
+
+        /* ---- Tuning Panel ---- */
+        .tuning-panel {
+            background: #f0f4f8;
             padding: 10px;
             border-radius: 8px;
-            border: 1px dashed #7f8c8d;
+            border: 1px solid #bcd;
             font-size: 12px;
             color: #333;
-        }
-        .cal-row {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 6px;
+            flex-direction: column;
+            gap: 8px;
         }
-        .cal-row input {
-            width: 60px;
-            padding: 4px;
-            font-size: 12px;
+        .tuning-panel strong {
+            font-size: 13px;
+            color: #222;
+        }
+        .tune-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .tune-row label {
+            flex-shrink: 0;
+            width: 62px;
+            font-weight: bold;
+            color: #555;
+        }
+        .tune-row input[type="number"] {
+            width: 64px;
+            padding: 5px 4px;
+            font-size: 13px;
             border: 1px solid #ccc;
-            border-radius: 4px;
+            border-radius: 5px;
             text-align: center;
         }
-        .cal-btn {
-            background: #2980b9;
-            font-size: 14px;
-            margin-top: 8px;
-            padding: 8px;
+        .tune-row span {
+            color: #888;
+            font-size: 11px;
         }
-        .cal-btn:active { background: #1f618d; }
+        .tune-btns {
+            display: flex;
+            gap: 6px;
+        }
+        .tune-btn {
+            flex: 1;
+            padding: 8px 4px;
+            font-size: 12px;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            color: #fff;
+            transition: 0.15s;
+            width: auto;
+        }
+        .tune-btn-speed  { background: #27ae60; }
+        .tune-btn-speed:active  { background: #1e8449; }
+        .tune-btn-stimp  { background: #8e44ad; }
+        .tune-btn-stimp:active  { background: #6c3483; }
+        .tune-btn-both   { background: #2980b9; }
+        .tune-btn-both:active   { background: #1f618d; }
+
+        .tune-result {
+            font-size: 11px;
+            color: #555;
+            min-height: 16px;
+            text-align: center;
+            font-style: italic;
+        }
 
         #status { 
             font-weight: 600; 
             color: #555; 
             text-align: center;
             font-size: 13px;
-            margin-top: 5px;
+            margin-top: 2px;
         }
         .data-display {
             font-size: 16px;
@@ -113,7 +153,7 @@
             gap: 4px;
         }
         .dist { color: #b22222; font-size: 20px; }
-        .dir { color: #2E8B57; font-size: 14px; }
+        .dir  { color: #2E8B57; font-size: 14px; }
         
         #cameraContainer {
             position: absolute;
@@ -128,10 +168,7 @@
             background: #000;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
-        #trackerCanvas {
-            width: 100%;
-            height: 100%;
-        }
+        #trackerCanvas { width: 100%; height: 100%; }
 
         #holdBadge {
             display: none;
@@ -155,373 +192,367 @@
 </head>
 <body>
 
-    <div id="ui-container">
-        <div style="text-align:center; font-weight:bold; color:#333; font-size: 13px;">Phone between feet, back camera facing putter face.</div>
-        
-        <div class="slider-group">
-            <div class="slider-container">
-                <label>Club Sensitivity:</label>
-                <input type="range" id="clubSensitivity" min="0.001" max="1.000" step="0.001" value="0.250">
-                <span id="clubSensitivityValue" class="val-display">0.250</span>
-            </div>
-            <div class="slider-container">
-                <label>Stimp (Green):</label>
-                <input type="range" id="stimp" min="4" max="20" step="0.1" value="10.0">
-                <span id="stimpValue" class="val-display">10.0</span>
-            </div>
-        </div>
+<div id="ui-container">
+    <div style="text-align:center; font-weight:bold; color:#333; font-size:13px;">Phone between feet, back camera facing putter face.</div>
 
-        <div class="calibration-panel">
-            <strong>Auto-Calibration:</strong> Enter distances in yards (e.g. 5.5)
-            <div class="cal-row">
-                <span>Short Putt:</span>
-                <input type="number" id="appShort" placeholder="App Yds">
-                <input type="number" id="realShort" placeholder="Real Yds">
-            </div>
-            <div class="cal-row">
-                <span>Long Putt:</span>
-                <input type="number" id="appLong" placeholder="App Yds">
-                <input type="number" id="realLong" placeholder="Real Yds">
-            </div>
-            <button id="calcBtn" class="cal-btn">Calculate & Apply Settings</button>
+    <!-- Current sliders -->
+    <div class="slider-group">
+        <div class="slider-container">
+            <label>Club Sensitivity:</label>
+            <input type="range" id="clubSensitivity" min="0.001" max="1.000" step="0.001" value="0.250">
+            <span id="clubSensitivityValue" class="val-display">0.250</span>
         </div>
-
-        <button id="startBtn">Start Camera Tracking</button>
-        <div id="status">Waiting for camera...</div>
-        
-        <div class="data-display">
-            <div id="distanceDisplay" class="dist">Dist: 0y 0f</div>
-            <div id="directionDisplay" class="dir">Face: Locked Square</div>
+        <div class="slider-container">
+            <label>Stimp (Green):</label>
+            <input type="range" id="stimp" min="4" max="20" step="0.1" value="10.0">
+            <span id="stimpValue" class="val-display">10.0</span>
         </div>
     </div>
 
-    <div id="cameraContainer">
-        <canvas id="trackerCanvas"></canvas>
+    <!-- Manual tuning panel -->
+    <div class="tuning-panel">
+        <strong>🎯 Tune by Putt Result</strong>
+        <div class="tune-row">
+            <label>App yards:</label>
+            <input type="number" id="tuneApp" placeholder="e.g. 8.5" step="0.1" min="0">
+            <span>(what app showed)</span>
+        </div>
+        <div class="tune-row">
+            <label>Real yards:</label>
+            <input type="number" id="tuneReal" placeholder="e.g. 6.0" step="0.1" min="0">
+            <span>(where ball stopped)</span>
+        </div>
+        <div class="tune-btns">
+            <button class="tune-btn tune-btn-speed"  id="tuneSpeedBtn">Fix Club Speed</button>
+            <button class="tune-btn tune-btn-stimp"  id="tuneStimpBtn">Fix Stimp</button>
+            <button class="tune-btn tune-btn-both"   id="tuneBothBtn">Fix Both</button>
+        </div>
+        <div class="tune-result" id="tuneResult">Enter a putt result above to tune.</div>
     </div>
-    <div id="holdBadge">⏸ BACKSWING HOLD</div>
 
-    <script>
-        // --- 1. SETUP THREE.JS SCENE ---
-        const scene = new THREE.Scene();
-        
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.set(5, 6, 2); 
+    <button id="startBtn">Start Camera Tracking</button>
+    <div id="status">Waiting for camera...</div>
 
-        const TEE_POS = { x: -0.16, y: -2.475, z: 0.45 }; 
-        camera.lookAt(TEE_POS.x - 1, TEE_POS.y, TEE_POS.z);
+    <div class="data-display">
+        <div id="distanceDisplay" class="dist">Dist: 0y 0f</div>
+        <div id="directionDisplay" class="dir">Face: Locked Square</div>
+    </div>
+</div>
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+<div id="cameraContainer">
+    <canvas id="trackerCanvas"></canvas>
+</div>
+<div id="holdBadge">⏸ BACKSWING HOLD</div>
+
+<script>
+    // --- 1. THREE.JS SCENE ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(5, 6, 2);
+    const TEE_POS = { x: -0.16, y: -2.475, z: 0.45 };
+    camera.lookAt(TEE_POS.x - 1, TEE_POS.y, TEE_POS.z);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight.position.set(5, 10, 5);
+    scene.add(dirLight);
+
+    const gridHelper = new THREE.GridHelper(40, 40, 0xffffff, 0xffffff);
+    gridHelper.position.y = -2.575;
+    gridHelper.material.opacity = 0.3;
+    gridHelper.material.transparent = true;
+    scene.add(gridHelper);
+
+    // --- 2. MANNEQUIN ---
+    const skinMat  = new THREE.MeshLambertMaterial({ color: 0xffccaa });
+    const shirtMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
+    const pantsMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
+    const clubMat  = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
+    const gripMat  = new THREE.MeshLambertMaterial({ color: 0x111111 });
+
+    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
+    leftLeg.position.set(-0.4, 0, 0); scene.add(leftLeg);
+    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
+    rightLeg.position.set(0.4, 0, 0); scene.add(rightLeg);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.8, 0.6), shirtMat);
+    torso.position.set(0, 1.9, 0); scene.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.4), skinMat);
+    head.position.set(0, 3.2, 0); scene.add(head);
+
+    const pivot = new THREE.Group();
+    pivot.position.set(0, 2.5, 0.4);
+    pivot.rotation.order = "YXZ";
+    scene.add(pivot);
+
+    const arms = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 2), skinMat);
+    arms.position.set(0, -1, 0); pivot.add(arms);
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.8), gripMat);
+    grip.position.set(0, -2.2, 0); pivot.add(grip);
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 2.5), clubMat);
+    shaft.position.set(0, -3.8, 0); pivot.add(shaft);
+    const clubHead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.3), clubMat);
+    clubHead.position.set(0.15, -5, 0.05); pivot.add(clubHead);
+
+    const ballRadius = 0.1;
+    const ball = new THREE.Mesh(
+        new THREE.SphereGeometry(ballRadius, 32, 32),
+        new THREE.MeshLambertMaterial({ color: 0xffffff })
+    );
+    ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
+    scene.add(ball);
+
+    // --- 3. STATE ---
+    let targetRotZ = 0, currRotZ = 0;
+    let ballVelX = 0, ballVelZ = 0;
+    let lastClubPos = new THREE.Vector3();
+    let currentClubPos = new THREE.Vector3();
+
+    const HOLD_FRAME_THRESHOLD = 4;
+    let missingFrames = 0, inBackswingHold = false, frozenRotZ = 0;
+    const holdBadge = document.getElementById('holdBadge');
+
+    // --- 4. SLIDERS ---
+    const sensitivitySlider   = document.getElementById('clubSensitivity');
+    const sensitivityValueEl  = document.getElementById('clubSensitivityValue');
+    sensitivitySlider.addEventListener('input', () => {
+        sensitivityValueEl.innerText = parseFloat(sensitivitySlider.value).toFixed(3);
+    });
+
+    const stimpSlider  = document.getElementById('stimp');
+    const stimpValueEl = document.getElementById('stimpValue');
+    stimpSlider.addEventListener('input', () => {
+        stimpValueEl.innerText = parseFloat(stimpSlider.value).toFixed(1);
+    });
+
+    // --- 5. TUNING LOGIC ---
+    // The physics chain is:
+    //   distance ∝ clubSpeed²  / (2 * friction)   where friction = 0.0012 * (10 / stimp)
+    //   clubSpeed = rawBlobSpeed * sensitivity * 0.8 * physicsScale (= 1.5)
+    //
+    // So:  realYards / appYards = ratio
+    //
+    // Fix Club Speed only  → sensitivity scales by sqrt(ratio)   (speed is squared → distance)
+    // Fix Stimp only       → stimp scales by ratio               (friction is linear → distance)
+    // Fix Both             → split evenly: sensitivity *= ratio^(1/4), stimp *= sqrt(ratio)
+
+    function getTuneInputs() {
+        const app  = parseFloat(document.getElementById('tuneApp').value);
+        const real = parseFloat(document.getElementById('tuneReal').value);
+        return { app, real };
+    }
+
+    function applyTune(newSens, newStimp, msg) {
+        if (newSens !== null) {
+            newSens = Math.max(0.001, Math.min(1.000, newSens));
+            sensitivitySlider.value     = newSens;
+            sensitivityValueEl.innerText = newSens.toFixed(3);
+        }
+        if (newStimp !== null) {
+            newStimp = Math.max(4.0, Math.min(20.0, newStimp));
+            stimpSlider.value   = newStimp;
+            stimpValueEl.innerText = newStimp.toFixed(1);
+        }
+        document.getElementById('tuneResult').innerText = msg;
+    }
+
+    document.getElementById('tuneSpeedBtn').addEventListener('click', () => {
+        const { app, real } = getTuneInputs();
+        if (!app || !real || app <= 0) {
+            document.getElementById('tuneResult').innerText = '⚠️ Enter valid App & Real yards first.';
+            return;
+        }
+        const ratio   = real / app;
+        const curSens = parseFloat(sensitivitySlider.value);
+        // Distance ∝ speed² → to scale distance by ratio, scale speed by sqrt(ratio)
+        const newSens = curSens * Math.sqrt(ratio);
+        applyTune(newSens, null,
+            `Club Speed → ${newSens.toFixed(3)}  (was ${curSens.toFixed(3)}, ratio ${ratio.toFixed(3)})`);
+    });
+
+    document.getElementById('tuneStimpBtn').addEventListener('click', () => {
+        const { app, real } = getTuneInputs();
+        if (!app || !real || app <= 0) {
+            document.getElementById('tuneResult').innerText = '⚠️ Enter valid App & Real yards first.';
+            return;
+        }
+        const ratio     = real / app;
+        const curStimp  = parseFloat(stimpSlider.value);
+        // Distance ∝ 1/friction ∝ stimp → scale stimp by ratio directly
+        const newStimp  = curStimp * ratio;
+        applyTune(null, newStimp,
+            `Stimp → ${newStimp.toFixed(1)}  (was ${curStimp.toFixed(1)}, ratio ${ratio.toFixed(3)})`);
+    });
+
+    document.getElementById('tuneBothBtn').addEventListener('click', () => {
+        const { app, real } = getTuneInputs();
+        if (!app || !real || app <= 0) {
+            document.getElementById('tuneResult').innerText = '⚠️ Enter valid App & Real yards first.';
+            return;
+        }
+        const ratio    = real / app;
+        const curSens  = parseFloat(sensitivitySlider.value);
+        const curStimp = parseFloat(stimpSlider.value);
+        // Split error evenly: sens contribution is squared, stimp is linear
+        // To split evenly in log space: sens *= ratio^(1/4), stimp *= ratio^(1/2)
+        const newSens  = curSens  * Math.pow(ratio, 0.25);
+        const newStimp = curStimp * Math.pow(ratio, 0.50);
+        applyTune(newSens, newStimp,
+            `Both adjusted — Speed: ${newSens.toFixed(3)}, Stimp: ${newStimp.toFixed(1)}`);
+    });
+
+    // --- 6. CAMERA SETUP ---
+    const videoElement = document.createElement('video');
+    videoElement.setAttribute('playsinline', '');
+    videoElement.setAttribute('autoplay', '');
+
+    const trackerCanvas = document.getElementById('trackerCanvas');
+    const ctx = trackerCanvas.getContext('2d', { willReadFrequently: true });
+    const C_WIDTH = 160, C_HEIGHT = 120;
+    trackerCanvas.width = C_WIDTH; trackerCanvas.height = C_HEIGHT;
+
+    let cameraActive = false;
+    const startBtn = document.getElementById('startBtn');
+    const statusTxt = document.getElementById('status');
+    const distanceDisplay = document.getElementById('distanceDisplay');
+
+    startBtn.addEventListener('click', async () => {
+        const tryStream = async (exact) => navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: exact ? { exact: "environment" } : "environment",
+                width:  { ideal: C_WIDTH },
+                height: { ideal: C_HEIGHT }
+            }
+        });
+        let stream = null;
+        try { stream = await tryStream(true); }
+        catch (_) {
+            try { stream = await tryStream(false); }
+            catch (err) { statusTxt.innerText = "Error: Allow Camera Access!"; return; }
+        }
+        videoElement.srcObject = stream;
+        videoElement.onloadedmetadata = () => {
+            videoElement.play();
+            cameraActive = true;
+            startBtn.style.display = 'none';
+            statusTxt.innerText = "Back Camera Active! Move red putter.";
+        };
+    });
+
+    const MIN_BLOB_PX = 15;
+
+    function trackRedShaft() {
+        if (!cameraActive || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
+
+        ctx.drawImage(videoElement, 0, 0, C_WIDTH, C_HEIGHT);
+        const frame = ctx.getImageData(0, 0, C_WIDTH, C_HEIGHT);
+        const data  = frame.data;
+
+        let sumX = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            if (r > 130 && r > g * 1.6 && r > b * 1.6) {
+                sumX += (i / 4) % C_WIDTH;
+                count++;
+                data[i] = 255; data[i+1] = 0; data[i+2] = 255;
+            }
+        }
+        ctx.putImageData(frame, 0, 0);
+
+        if (count >= MIN_BLOB_PX) {
+            missingFrames = 0;
+            if (inBackswingHold) { inBackswingHold = false; holdBadge.style.display = 'none'; }
+
+            const avgX        = sumX / count;
+            const normalizedX = ((avgX / C_WIDTH) - 0.5) * 2;
+            const sensitivity = parseFloat(sensitivitySlider.value);
+            const newTarget   = normalizedX * 0.8 * sensitivity;
+
+            targetRotZ = newTarget;
+            frozenRotZ = newTarget;
+        } else {
+            missingFrames++;
+            if (!inBackswingHold && missingFrames >= HOLD_FRAME_THRESHOLD) {
+                inBackswingHold = true;
+                holdBadge.style.display = 'block';
+            }
+            if (inBackswingHold) targetRotZ = frozenRotZ;
+        }
+    }
+
+    function calculateDistance(velX, velZ, friction) {
+        const v0 = Math.sqrt(velX * velX + velZ * velZ);
+        const rawYards = ((v0 * v0) / (2 * friction)) * 3.5;
+        let yards = Math.floor(rawYards);
+        let feet  = Math.round((rawYards - yards) * 3);
+        if (feet === 3) { yards++; feet = 0; }
+        return { yards, feet };
+    }
+
+    // --- 7. ANIMATION & PHYSICS ---
+    function animate() {
+        requestAnimationFrame(animate);
+        trackRedShaft();
+
+        currRotZ += (targetRotZ - currRotZ) * 0.15;
+        pivot.rotation.z = currRotZ;
+
+        clubHead.getWorldPosition(currentClubPos);
+        const currentStimp    = parseFloat(stimpSlider.value);
+        const dynamicFriction = 0.0012 * (10 / currentStimp);
+
+        if (ballVelX === 0 && ballVelZ === 0) {
+            const faceWorldX     = currentClubPos.x - 0.2;
+            const lastFaceWorldX = lastClubPos.x - 0.2;
+            const ballRightEdge  = ball.position.x + ballRadius;
+
+            if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
+                const clubSpeed = Math.abs(currentClubPos.x - lastClubPos.x);
+                if (clubSpeed > 0.005) {
+                    // Smash factor is always 1
+                    ballVelX = -clubSpeed * 1.0 * 1.5;
+
+                    const d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
+                    distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
+
+                    setTimeout(() => {
+                        ballVelX = 0; ballVelZ = 0;
+                        ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
+                    }, 4000);
+                }
+            }
+        }
+
+        lastClubPos.copy(currentClubPos);
+
+        if (Math.abs(ballVelX) > 0 || Math.abs(ballVelZ) > 0) {
+            ball.position.x += ballVelX;
+            ball.position.z += ballVelZ;
+            const speed = Math.sqrt(ballVelX * ballVelX + ballVelZ * ballVelZ);
+            if (speed > dynamicFriction) {
+                const dropX = (Math.abs(ballVelX) / speed) * dynamicFriction;
+                const dropZ = (Math.abs(ballVelZ) / speed) * dynamicFriction;
+                ballVelX = ballVelX > 0 ? Math.max(0, ballVelX - dropX) : Math.min(0, ballVelX + dropX);
+                ballVelZ = ballVelZ > 0 ? Math.max(0, ballVelZ - dropZ) : Math.min(0, ballVelZ + dropZ);
+            } else {
+                ballVelX = 0; ballVelZ = 0;
+            }
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    clubHead.getWorldPosition(lastClubPos);
+    animate();
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-
-        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
-        directionalLight.position.set(5, 10, 5);
-        scene.add(directionalLight);
-
-        const gridHelper = new THREE.GridHelper(40, 40, 0xffffff, 0xffffff);
-        gridHelper.position.y = -2.575; 
-        gridHelper.material.opacity = 0.3;
-        gridHelper.material.transparent = true;
-        scene.add(gridHelper);
-
-        // --- 2. BUILD THE 3D MANNEQUIN ---
-        const skinMat = new THREE.MeshLambertMaterial({ color: 0xffccaa });
-        const shirtMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
-        const pantsMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
-        const clubMat = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
-        const gripMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
-
-        const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
-        leftLeg.position.set(-0.4, 0, 0); 
-        scene.add(leftLeg);
-        
-        const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
-        rightLeg.position.set(0.4, 0, 0); 
-        scene.add(rightLeg);
-
-        const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.8, 0.6), shirtMat);
-        torso.position.set(0, 1.9, 0);
-        scene.add(torso);
-
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.4), skinMat);
-        head.position.set(0, 3.2, 0);
-        scene.add(head);
-
-        const pivot = new THREE.Group();
-        pivot.position.set(0, 2.5, 0.4); 
-        pivot.rotation.order = "YXZ"; 
-        scene.add(pivot);
-
-        const arms = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 2), skinMat);
-        arms.position.set(0, -1, 0);
-        pivot.add(arms);
-
-        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.8), gripMat);
-        grip.position.set(0, -2.2, 0);
-        pivot.add(grip);
-
-        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 2.5), clubMat);
-        shaft.position.set(0, -3.8, 0);
-        pivot.add(shaft);
-
-        const clubHead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.3), clubMat);
-        clubHead.position.set(0.15, -5, 0.05); 
-        pivot.add(clubHead);
-
-        const ballRadius = 0.1;
-        const ball = new THREE.Mesh(
-            new THREE.SphereGeometry(ballRadius, 32, 32), 
-            new THREE.MeshLambertMaterial({ color: 0xffffff })
-        );
-        ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
-        scene.add(ball);
-
-        // --- 3. STATE VARIABLES ---
-        // Club sensitivity: scales how far the 3D club arm moves per unit of blob movement.
-        // This directly controls how fast the virtual club travels relative to blob pixels.
-        // Smash factor is always 1 — it no longer appears in any calculation.
-        let targetRotZ = 0;
-        let currRotZ = 0;
-        let prevNormalizedX = null; // tracks last blob X so we can compute per-frame delta
-
-        let ballVelX = 0;
-        let ballVelZ = 0;
-        let lastClubPos = new THREE.Vector3();
-        let currentClubPos = new THREE.Vector3();
-
-        // Backswing-hold state
-        const HOLD_FRAME_THRESHOLD = 4;
-        let missingFrames = 0;
-        let inBackswingHold = false;
-        let frozenRotZ = 0;
-        const holdBadge = document.getElementById('holdBadge');
-
-        // --- 4. UI AND CALIBRATION LOGIC ---
-        const sensitivitySlider = document.getElementById('clubSensitivity');
-        const sensitivityValueEl = document.getElementById('clubSensitivityValue');
-        sensitivitySlider.addEventListener('input', () => {
-            sensitivityValueEl.innerText = parseFloat(sensitivitySlider.value).toFixed(3);
-        });
-
-        const stimpSlider = document.getElementById('stimp');
-        const stimpValueEl = document.getElementById('stimpValue');
-        stimpSlider.addEventListener('input', () => {
-            stimpValueEl.innerText = parseFloat(stimpSlider.value).toFixed(1);
-        });
-
-        const calcBtn = document.getElementById('calcBtn');
-        calcBtn.addEventListener('click', () => {
-            const aS = parseFloat(document.getElementById('appShort').value);
-            const rS = parseFloat(document.getElementById('realShort').value);
-            const aL = parseFloat(document.getElementById('appLong').value);
-            const rL = parseFloat(document.getElementById('realLong').value);
-
-            if (aS && rS && aL && rL) {
-                const ratioShort = rS / aS;
-                const ratioLong  = rL / aL;
-                const avgRatio   = (ratioShort + ratioLong) / 2;
-                const distributionFactor = Math.sqrt(avgRatio);
-
-                // Scale sensitivity from the 0.250 baseline; stimp scales linearly
-                let newSensitivity = Math.max(0.001, Math.min(1.000, 0.250 * distributionFactor));
-                let newStimp       = Math.max(4.0,   Math.min(20.0,  10.0  * distributionFactor));
-
-                sensitivitySlider.value     = newSensitivity;
-                sensitivityValueEl.innerText = newSensitivity.toFixed(3);
-                stimpSlider.value            = newStimp;
-                stimpValueEl.innerText       = newStimp.toFixed(1);
-
-                alert(`Success!\nCalibrated Club Sensitivity to: ${newSensitivity.toFixed(3)}\nCalibrated Stimp to: ${newStimp.toFixed(1)}`);
-            } else {
-                alert("Please fill out all 4 distance fields to calibrate.");
-            }
-        });
-
-        // --- 5. CAMERA TRACKING SETUP ---
-        const videoElement = document.createElement('video');
-        videoElement.setAttribute('playsinline', '');
-        videoElement.setAttribute('autoplay', '');
-        
-        const trackerCanvas = document.getElementById('trackerCanvas');
-        const ctx = trackerCanvas.getContext('2d', { willReadFrequently: true });
-        
-        const C_WIDTH  = 160;
-        const C_HEIGHT = 120;
-        trackerCanvas.width  = C_WIDTH;
-        trackerCanvas.height = C_HEIGHT;
-
-        let cameraActive = false;
-        const startBtn    = document.getElementById('startBtn');
-        const statusTxt   = document.getElementById('status');
-        const distanceDisplay = document.getElementById('distanceDisplay');
-
-        startBtn.addEventListener('click', async () => {
-            const tryStream = async (exact) => navigator.mediaDevices.getUserMedia({ 
-                video: {
-                    facingMode: exact ? { exact: "environment" } : "environment",
-                    width:  { ideal: C_WIDTH },
-                    height: { ideal: C_HEIGHT }
-                }
-            });
-
-            let stream = null;
-            try { stream = await tryStream(true); }
-            catch (_) {
-                try { stream = await tryStream(false); }
-                catch (err) { statusTxt.innerText = "Error: Allow Camera Access!"; return; }
-            }
-
-            videoElement.srcObject = stream;
-            videoElement.onloadedmetadata = () => {
-                videoElement.play();
-                cameraActive = true;
-                startBtn.style.display = 'none';
-                statusTxt.innerText = "Back Camera Active! Move red putter.";
-            };
-        });
-
-        const MIN_BLOB_PX = 15;
-
-        function trackRedShaft() {
-            if (!cameraActive || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
-
-            ctx.drawImage(videoElement, 0, 0, C_WIDTH, C_HEIGHT);
-            const frame = ctx.getImageData(0, 0, C_WIDTH, C_HEIGHT);
-            const data  = frame.data;
-
-            let sumX  = 0;
-            let count = 0;
-
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i], g = data[i+1], b = data[i+2];
-                if (r > 130 && r > g * 1.6 && r > b * 1.6) {
-                    sumX += (i / 4) % C_WIDTH;
-                    count++;
-                    data[i] = 255; data[i+1] = 0; data[i+2] = 255; // highlight magenta
-                }
-            }
-
-            ctx.putImageData(frame, 0, 0);
-
-            if (count >= MIN_BLOB_PX) {
-                // ---- Blob visible ----
-                missingFrames = 0;
-                if (inBackswingHold) {
-                    inBackswingHold = false;
-                    holdBadge.style.display = 'none';
-                }
-
-                const avgX = sumX / count;
-
-                // Normalise blob position: left edge = -1, centre = 0, right edge = +1
-                // Phone is between feet looking at putter back so direction is NOT negated.
-                const normalizedX = ((avgX / C_WIDTH) - 0.5) * 2;
-
-                // Club Sensitivity scales blob-position → rotation angle.
-                // Higher sensitivity = same blob movement produces a larger arm swing.
-                // Smash factor is always 1 and plays no role here.
-                const sensitivity = parseFloat(sensitivitySlider.value);
-                const newTarget   = normalizedX * 0.8 * sensitivity;
-
-                targetRotZ = newTarget;
-                frozenRotZ = newTarget; // snapshot for hold
-
-            } else {
-                // ---- Blob not visible ----
-                missingFrames++;
-
-                if (!inBackswingHold && missingFrames >= HOLD_FRAME_THRESHOLD) {
-                    inBackswingHold = true;
-                    holdBadge.style.display = 'block';
-                }
-
-                if (inBackswingHold) {
-                    targetRotZ = frozenRotZ; // hold shaft at last known position
-                }
-                // If under threshold, targetRotZ is simply not updated this frame
-                // (glitch-tolerance: very brief disappearances are ignored)
-            }
-        }
-
-        function calculateDistance(velX, velZ, friction) {
-            const v0 = Math.sqrt(velX * velX + velZ * velZ);
-            const rawYards = ((v0 * v0) / (2 * friction)) * 3.5;
-            let yards = Math.floor(rawYards);
-            let feet  = Math.round((rawYards - yards) * 3);
-            if (feet === 3) { yards += 1; feet = 0; }
-            return { yards, feet };
-        }
-
-        // --- 6. ANIMATION & PHYSICS ENGINE ---
-        function animate() {
-            requestAnimationFrame(animate);
-            
-            trackRedShaft();
-
-            currRotZ += (targetRotZ - currRotZ) * 0.15;
-            pivot.rotation.z = currRotZ;
-
-            clubHead.getWorldPosition(currentClubPos);
-            const currentStimp   = parseFloat(stimpSlider.value);
-            const dynamicFriction = 0.0012 * (10 / currentStimp); 
-
-            if (ballVelX === 0 && ballVelZ === 0) {
-                const faceWorldX     = currentClubPos.x - 0.2; 
-                const lastFaceWorldX = lastClubPos.x - 0.2;
-                const ballRightEdge  = ball.position.x + ballRadius;
-
-                if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
-                    const clubSpeed = Math.abs(currentClubPos.x - lastClubPos.x);
-                    
-                    if (clubSpeed > 0.005) {
-                        // Smash factor = 1 always; only physicsScale matters here.
-                        // Club sensitivity already shaped how fast the club moved,
-                        // so raw clubSpeed already reflects the user's sensitivity setting.
-                        const physicsScale = 1.5;
-                        ballVelX = -clubSpeed * 1.0 * physicsScale; // smash factor hard-coded to 1
-
-                        const d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
-                        distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
-                        
-                        setTimeout(() => {
-                            ballVelX = 0; ballVelZ = 0;
-                            ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
-                        }, 4000);
-                    }
-                }
-            }
-            
-            lastClubPos.copy(currentClubPos);
-
-            if (Math.abs(ballVelX) > 0 || Math.abs(ballVelZ) > 0) {
-                ball.position.x += ballVelX;
-                ball.position.z += ballVelZ;
-                
-                const speed = Math.sqrt(ballVelX * ballVelX + ballVelZ * ballVelZ);
-                
-                if (speed > dynamicFriction) {
-                    const dropX = (Math.abs(ballVelX) / speed) * dynamicFriction;
-                    const dropZ = (Math.abs(ballVelZ) / speed) * dynamicFriction;
-                    
-                    ballVelX = ballVelX > 0 ? Math.max(0, ballVelX - dropX) : Math.min(0, ballVelX + dropX);
-                    ballVelZ = ballVelZ > 0 ? Math.max(0, ballVelZ - dropZ) : Math.min(0, ballVelZ + dropZ);
-                } else {
-                    ballVelX = 0; ballVelZ = 0;
-                }
-            }
-
-            renderer.render(scene, camera);
-        }
-        
-        clubHead.getWorldPosition(lastClubPos);
-        animate();
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    </script>
+    });
+</script>
 </body>
 </html>
