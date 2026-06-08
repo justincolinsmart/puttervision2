@@ -160,10 +160,9 @@
         
         <div class="slider-group">
             <div class="slider-container">
-                <!-- CHANGED: label renamed to "Club Sensitivity", range 0.001–1.000, step 0.001, default 0.250 -->
                 <label>Club Sensitivity:</label>
-                <input type="range" id="smash" min="0.001" max="1.000" step="0.001" value="0.250">
-                <span id="smashValue" class="val-display">0.250</span>
+                <input type="range" id="clubSensitivity" min="0.001" max="1.000" step="0.001" value="0.250">
+                <span id="clubSensitivityValue" class="val-display">0.250</span>
             </div>
             <div class="slider-container">
                 <label>Stimp (Green):</label>
@@ -279,9 +278,13 @@
         scene.add(ball);
 
         // --- 3. STATE VARIABLES ---
+        // Club sensitivity: scales how far the 3D club arm moves per unit of blob movement.
+        // This directly controls how fast the virtual club travels relative to blob pixels.
+        // Smash factor is always 1 — it no longer appears in any calculation.
         let targetRotZ = 0;
         let currRotZ = 0;
-        
+        let prevNormalizedX = null; // tracks last blob X so we can compute per-frame delta
+
         let ballVelX = 0;
         let ballVelZ = 0;
         let lastClubPos = new THREE.Vector3();
@@ -295,41 +298,39 @@
         const holdBadge = document.getElementById('holdBadge');
 
         // --- 4. UI AND CALIBRATION LOGIC ---
-        const smashSlider = document.getElementById('smash');
-        const smashValueEl = document.getElementById('smashValue');
-        // CHANGED: display 3 decimal places
-        smashSlider.addEventListener('input', () => {
-            smashValueEl.innerText = parseFloat(smashSlider.value).toFixed(3);
+        const sensitivitySlider = document.getElementById('clubSensitivity');
+        const sensitivityValueEl = document.getElementById('clubSensitivityValue');
+        sensitivitySlider.addEventListener('input', () => {
+            sensitivityValueEl.innerText = parseFloat(sensitivitySlider.value).toFixed(3);
         });
 
         const stimpSlider = document.getElementById('stimp');
-        const stimpValue = document.getElementById('stimpValue');
-        stimpSlider.addEventListener('input', () => stimpValue.innerText = parseFloat(stimpSlider.value).toFixed(1));
+        const stimpValueEl = document.getElementById('stimpValue');
+        stimpSlider.addEventListener('input', () => {
+            stimpValueEl.innerText = parseFloat(stimpSlider.value).toFixed(1);
+        });
 
         const calcBtn = document.getElementById('calcBtn');
         calcBtn.addEventListener('click', () => {
-            let aS = parseFloat(document.getElementById('appShort').value);
-            let rS = parseFloat(document.getElementById('realShort').value);
-            let aL = parseFloat(document.getElementById('appLong').value);
-            let rL = parseFloat(document.getElementById('realLong').value);
+            const aS = parseFloat(document.getElementById('appShort').value);
+            const rS = parseFloat(document.getElementById('realShort').value);
+            const aL = parseFloat(document.getElementById('appLong').value);
+            const rL = parseFloat(document.getElementById('realLong').value);
 
             if (aS && rS && aL && rL) {
-                let ratioShort = rS / aS;
-                let ratioLong = rL / aL;
-                let avgRatio = (ratioShort + ratioLong) / 2;
-                let distributionFactor = Math.sqrt(avgRatio);
+                const ratioShort = rS / aS;
+                const ratioLong  = rL / aL;
+                const avgRatio   = (ratioShort + ratioLong) / 2;
+                const distributionFactor = Math.sqrt(avgRatio);
 
-                // CHANGED: calibration now scales sensitivity (0.001–1.000) not the old smash range
-                let newSensitivity = 0.250 * distributionFactor;
-                let newStimp = 10.0 * distributionFactor;
+                // Scale sensitivity from the 0.250 baseline; stimp scales linearly
+                let newSensitivity = Math.max(0.001, Math.min(1.000, 0.250 * distributionFactor));
+                let newStimp       = Math.max(4.0,   Math.min(20.0,  10.0  * distributionFactor));
 
-                newSensitivity = Math.max(0.001, Math.min(1.000, newSensitivity));
-                newStimp = Math.max(4.0, Math.min(20.0, newStimp));
-
-                smashSlider.value = newSensitivity;
-                smashValueEl.innerText = newSensitivity.toFixed(3);
-                stimpSlider.value = newStimp;
-                stimpValue.innerText = newStimp.toFixed(1);
+                sensitivitySlider.value     = newSensitivity;
+                sensitivityValueEl.innerText = newSensitivity.toFixed(3);
+                stimpSlider.value            = newStimp;
+                stimpValueEl.innerText       = newStimp.toFixed(1);
 
                 alert(`Success!\nCalibrated Club Sensitivity to: ${newSensitivity.toFixed(3)}\nCalibrated Stimp to: ${newStimp.toFixed(1)}`);
             } else {
@@ -345,37 +346,30 @@
         const trackerCanvas = document.getElementById('trackerCanvas');
         const ctx = trackerCanvas.getContext('2d', { willReadFrequently: true });
         
-        const C_WIDTH = 160;
+        const C_WIDTH  = 160;
         const C_HEIGHT = 120;
-        trackerCanvas.width = C_WIDTH;
+        trackerCanvas.width  = C_WIDTH;
         trackerCanvas.height = C_HEIGHT;
 
         let cameraActive = false;
-        const startBtn = document.getElementById('startBtn');
-        const statusTxt = document.getElementById('status');
+        const startBtn    = document.getElementById('startBtn');
+        const statusTxt   = document.getElementById('status');
         const distanceDisplay = document.getElementById('distanceDisplay');
 
         startBtn.addEventListener('click', async () => {
-            const tryStream = async (exact) => {
-                return navigator.mediaDevices.getUserMedia({ 
-                    video: {
-                        facingMode: exact ? { exact: "environment" } : "environment",
-                        width:  { ideal: C_WIDTH },
-                        height: { ideal: C_HEIGHT }
-                    }
-                });
-            };
+            const tryStream = async (exact) => navigator.mediaDevices.getUserMedia({ 
+                video: {
+                    facingMode: exact ? { exact: "environment" } : "environment",
+                    width:  { ideal: C_WIDTH },
+                    height: { ideal: C_HEIGHT }
+                }
+            });
 
             let stream = null;
-            try {
-                stream = await tryStream(true);
-            } catch (_) {
-                try {
-                    stream = await tryStream(false);
-                } catch (err) {
-                    statusTxt.innerText = "Error: Allow Camera Access!";
-                    return;
-                }
+            try { stream = await tryStream(true); }
+            catch (_) {
+                try { stream = await tryStream(false); }
+                catch (err) { statusTxt.innerText = "Error: Allow Camera Access!"; return; }
             }
 
             videoElement.srcObject = stream;
@@ -394,9 +388,9 @@
 
             ctx.drawImage(videoElement, 0, 0, C_WIDTH, C_HEIGHT);
             const frame = ctx.getImageData(0, 0, C_WIDTH, C_HEIGHT);
-            const data = frame.data;
+            const data  = frame.data;
 
-            let sumX = 0;
+            let sumX  = 0;
             let count = 0;
 
             for (let i = 0; i < data.length; i += 4) {
@@ -404,15 +398,15 @@
                 if (r > 130 && r > g * 1.6 && r > b * 1.6) {
                     sumX += (i / 4) % C_WIDTH;
                     count++;
-                    data[i] = 255; data[i+1] = 0; data[i+2] = 255;
+                    data[i] = 255; data[i+1] = 0; data[i+2] = 255; // highlight magenta
                 }
             }
 
             ctx.putImageData(frame, 0, 0);
 
             if (count >= MIN_BLOB_PX) {
+                // ---- Blob visible ----
                 missingFrames = 0;
-
                 if (inBackswingHold) {
                     inBackswingHold = false;
                     holdBadge.style.display = 'none';
@@ -420,18 +414,21 @@
 
                 const avgX = sumX / count;
 
-                // CHANGED: phone is between feet looking at putter back, so the
-                // stroke direction is reversed compared to a side-on view.
-                // Negate normalizedX to flip the backstroke direction.
-                // Original:  normalizedX = -1 * (((avgX / C_WIDTH) - 0.5) * 2)
-                // Reversed:  drop the leading -1  →  positive = backstroke left, follow-through right
+                // Normalise blob position: left edge = -1, centre = 0, right edge = +1
+                // Phone is between feet looking at putter back so direction is NOT negated.
                 const normalizedX = ((avgX / C_WIDTH) - 0.5) * 2;
-                const newTarget = normalizedX * 0.8;
+
+                // Club Sensitivity scales blob-position → rotation angle.
+                // Higher sensitivity = same blob movement produces a larger arm swing.
+                // Smash factor is always 1 and plays no role here.
+                const sensitivity = parseFloat(sensitivitySlider.value);
+                const newTarget   = normalizedX * 0.8 * sensitivity;
 
                 targetRotZ = newTarget;
-                frozenRotZ = newTarget;
+                frozenRotZ = newTarget; // snapshot for hold
 
             } else {
+                // ---- Blob not visible ----
                 missingFrames++;
 
                 if (!inBackswingHold && missingFrames >= HOLD_FRAME_THRESHOLD) {
@@ -440,18 +437,18 @@
                 }
 
                 if (inBackswingHold) {
-                    targetRotZ = frozenRotZ;
+                    targetRotZ = frozenRotZ; // hold shaft at last known position
                 }
+                // If under threshold, targetRotZ is simply not updated this frame
+                // (glitch-tolerance: very brief disappearances are ignored)
             }
         }
 
         function calculateDistance(velX, velZ, friction) {
             const v0 = Math.sqrt(velX * velX + velZ * velZ);
-            const distanceUnits = (v0 * v0) / (2 * friction);
-            const rawYards = distanceUnits * 3.5; 
-            
+            const rawYards = ((v0 * v0) / (2 * friction)) * 3.5;
             let yards = Math.floor(rawYards);
-            let feet = Math.round((rawYards - yards) * 3);
+            let feet  = Math.round((rawYards - yards) * 3);
             if (feet === 3) { yards += 1; feet = 0; }
             return { yards, feet };
         }
@@ -466,25 +463,24 @@
             pivot.rotation.z = currRotZ;
 
             clubHead.getWorldPosition(currentClubPos);
-            const currentStimp = parseFloat(stimpSlider.value);
+            const currentStimp   = parseFloat(stimpSlider.value);
             const dynamicFriction = 0.0012 * (10 / currentStimp); 
 
             if (ballVelX === 0 && ballVelZ === 0) {
-                const faceWorldX = currentClubPos.x - 0.2; 
+                const faceWorldX     = currentClubPos.x - 0.2; 
                 const lastFaceWorldX = lastClubPos.x - 0.2;
-                const ballRightEdge = ball.position.x + ballRadius;
+                const ballRightEdge  = ball.position.x + ballRadius;
 
                 if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
                     const clubSpeed = Math.abs(currentClubPos.x - lastClubPos.x);
                     
-                    if (clubSpeed > 0.005) { 
-                        // CHANGED: sensitivity replaces smash factor as a direct multiplier
-                        // on the raw club speed. Default 0.250 gives a moderate distance.
-                        const sensitivity = parseFloat(smashSlider.value);
-                        const physicsScale = 1.5; 
-                        
-                        ballVelX = -clubSpeed * sensitivity * physicsScale; 
-                        
+                    if (clubSpeed > 0.005) {
+                        // Smash factor = 1 always; only physicsScale matters here.
+                        // Club sensitivity already shaped how fast the club moved,
+                        // so raw clubSpeed already reflects the user's sensitivity setting.
+                        const physicsScale = 1.5;
+                        ballVelX = -clubSpeed * 1.0 * physicsScale; // smash factor hard-coded to 1
+
                         const d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
                         distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
                         
@@ -508,11 +504,8 @@
                     const dropX = (Math.abs(ballVelX) / speed) * dynamicFriction;
                     const dropZ = (Math.abs(ballVelZ) / speed) * dynamicFriction;
                     
-                    if (ballVelX > 0) ballVelX = Math.max(0, ballVelX - dropX);
-                    else ballVelX = Math.min(0, ballVelX + dropX);
-                    
-                    if (ballVelZ > 0) ballVelZ = Math.max(0, ballVelZ - dropZ);
-                    else ballVelZ = Math.min(0, ballVelZ + dropZ);
+                    ballVelX = ballVelX > 0 ? Math.max(0, ballVelX - dropX) : Math.min(0, ballVelX + dropX);
+                    ballVelZ = ballVelZ > 0 ? Math.max(0, ballVelZ - dropZ) : Math.min(0, ballVelZ + dropZ);
                 } else {
                     ballVelX = 0; ballVelZ = 0;
                 }
