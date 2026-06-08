@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>3D Putter Simulator Pro - Camera Tracking & Auto-Calibrate</title>
+    <title>Putter Speed Tracker - Rear Camera</title>
     <style>
         body { 
             margin: 0; 
@@ -113,14 +113,15 @@
             gap: 4px;
         }
         .dist { color: #b22222; font-size: 20px; }
-        .dir { color: #2E8B57; font-size: 14px; }
+        .spd  { color: #1a6e9e; font-size: 13px; }
+        .dir  { color: #2E8B57; font-size: 13px; }
         
         #cameraContainer {
             position: absolute;
             bottom: 15px;
             right: 15px;
-            width: 120px;
-            height: 90px;
+            width: 160px;
+            height: 120px;
             border: 3px solid #fff;
             border-radius: 8px;
             overflow: hidden;
@@ -128,10 +129,25 @@
             background: #000;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
+        /* NO mirror flip for rear camera */
         #trackerCanvas {
             width: 100%;
             height: 100%;
-            transform: scaleX(-1);
+        }
+
+        /* Calibration status badge */
+        #calBadge {
+            position: absolute;
+            bottom: 145px;
+            right: 15px;
+            z-index: 21;
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            font-size: 10px;
+            padding: 3px 7px;
+            border-radius: 6px;
+            text-align: center;
+            min-width: 100px;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -139,7 +155,9 @@
 <body>
 
     <div id="ui-container">
-        <div style="text-align:center; font-weight:bold; color:#333; font-size: 13px;">Place phone facing you. Putt across the camera view.</div>
+        <div style="text-align:center; font-weight:bold; color:#333; font-size: 13px;">
+            Rear camera close to putter face. Rest putter → auto-calibrates. Then swing!
+        </div>
         
         <div class="slider-group">
             <div class="slider-container">
@@ -155,7 +173,7 @@
         </div>
 
         <div class="calibration-panel">
-            <strong>Auto-Calibration:</strong> Enter distances in yards (e.g. 5.5)
+            <strong>Distance Calibration:</strong> Enter yards to adjust output
             <div class="cal-row">
                 <span>Short Putt:</span>
                 <input type="number" id="appShort" placeholder="App Yds">
@@ -169,298 +187,450 @@
             <button id="calcBtn" class="cal-btn">Calculate & Apply Settings</button>
         </div>
 
-        <button id="startBtn">Start Camera Tracking</button>
+        <button id="startBtn">Start Rear Camera Tracking</button>
         <div id="status">Waiting for camera...</div>
         
         <div class="data-display">
-            <div id="distanceDisplay" class="dist">Dist: 0y 0f</div>
-            <div id="directionDisplay" class="dir">Face: Locked Square</div>
+            <div id="distanceDisplay" class="dist">Dist: -- y -- f</div>
+            <div id="speedDisplay"   class="spd">Peak Speed: -- px/frame</div>
+            <div id="directionDisplay" class="dir">State: Idle</div>
         </div>
     </div>
 
     <div id="cameraContainer">
         <canvas id="trackerCanvas"></canvas>
     </div>
+    <div id="calBadge">Cal: Not set</div>
 
     <script>
-        // --- 1. SETUP THREE.JS SCENE ---
+        // ─────────────────────────────────────────────
+        // 1. THREE.JS SCENE
+        // ─────────────────────────────────────────────
         const scene = new THREE.Scene();
-        
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.set(5, 6, 2); 
+        const camera3D = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera3D.position.set(5, 6, 2);
 
-        const TEE_POS = { x: -0.16, y: -2.475, z: 0.45 }; 
-        camera.lookAt(TEE_POS.x - 1, TEE_POS.y, TEE_POS.z);
+        const TEE_POS = { x: -0.16, y: -2.475, z: 0.45 };
+        camera3D.lookAt(TEE_POS.x - 1, TEE_POS.y, TEE_POS.z);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
         scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
-        directionalLight.position.set(5, 10, 5);
-        scene.add(directionalLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight.position.set(5, 10, 5);
+        scene.add(dirLight);
 
         const gridHelper = new THREE.GridHelper(40, 40, 0xffffff, 0xffffff);
-        gridHelper.position.y = -2.575; 
+        gridHelper.position.y = -2.575;
         gridHelper.material.opacity = 0.3;
         gridHelper.material.transparent = true;
         scene.add(gridHelper);
 
-        // --- 2. BUILD THE 3D MANNEQUIN ---
-        const skinMat = new THREE.MeshLambertMaterial({ color: 0xffccaa });
+        // Mannequin materials
+        const skinMat  = new THREE.MeshLambertMaterial({ color: 0xffccaa });
         const shirtMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
         const pantsMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
-        const clubMat = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
-        const gripMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+        const clubMat  = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
+        const gripMat  = new THREE.MeshLambertMaterial({ color: 0x111111 });
 
-        const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
-        leftLeg.position.set(-0.4, 0, 0); 
-        scene.add(leftLeg);
-        
-        const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 2), pantsMat);
-        rightLeg.position.set(0.4, 0, 0); 
-        scene.add(rightLeg);
-
-        const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.8, 0.6), shirtMat);
-        torso.position.set(0, 1.9, 0);
-        scene.add(torso);
-
+        const leftLeg  = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.15,2), pantsMat);
+        leftLeg.position.set(-0.4,0,0); scene.add(leftLeg);
+        const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.15,2), pantsMat);
+        rightLeg.position.set(0.4,0,0); scene.add(rightLeg);
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2,1.8,0.6), shirtMat);
+        torso.position.set(0,1.9,0); scene.add(torso);
         const head = new THREE.Mesh(new THREE.SphereGeometry(0.4), skinMat);
-        head.position.set(0, 3.2, 0);
-        scene.add(head);
+        head.position.set(0,3.2,0); scene.add(head);
 
         const pivot = new THREE.Group();
-        pivot.position.set(0, 2.5, 0.4); 
-        pivot.rotation.order = "YXZ"; 
+        pivot.position.set(0,2.5,0.4);
+        pivot.rotation.order = "YXZ";
         scene.add(pivot);
-
-        const arms = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 2), skinMat);
-        arms.position.set(0, -1, 0);
-        pivot.add(arms);
-
-        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.8), gripMat);
-        grip.position.set(0, -2.2, 0);
-        pivot.add(grip);
-
-        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 2.5), clubMat);
-        shaft.position.set(0, -3.8, 0);
-        pivot.add(shaft);
-
-        const clubHead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.3), clubMat);
-        clubHead.position.set(0.15, -5, 0.05); 
-        pivot.add(clubHead);
+        const arms = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.1,2), skinMat);
+        arms.position.set(0,-1,0); pivot.add(arms);
+        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.05,0.8), gripMat);
+        grip.position.set(0,-2.2,0); pivot.add(grip);
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.03,2.5), clubMat);
+        shaft.position.set(0,-3.8,0); pivot.add(shaft);
+        const clubHead = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.15,0.3), clubMat);
+        clubHead.position.set(0.15,-5,0.05); pivot.add(clubHead);
 
         const ballRadius = 0.1;
         const ball = new THREE.Mesh(
-            new THREE.SphereGeometry(ballRadius, 32, 32), 
+            new THREE.SphereGeometry(ballRadius, 32, 32),
             new THREE.MeshLambertMaterial({ color: 0xffffff })
         );
         ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
         scene.add(ball);
 
-        // --- 3. STATE VARIABLES ---
-        let targetRotZ = 0;
-        let currRotZ = 0;
-        
-        let ballVelX = 0;
-        let ballVelZ = 0;
-        let lastClubPos = new THREE.Vector3();
-        let currentClubPos = new THREE.Vector3();
+        // ─────────────────────────────────────────────
+        // 2. STATE
+        // ─────────────────────────────────────────────
+        let targetRotZ = 0, currRotZ = 0;
+        let ballVelX = 0, ballVelZ = 0;
+        const lastClubPos    = new THREE.Vector3();
+        const currentClubPos = new THREE.Vector3();
 
-        // --- 4. UI AND CALIBRATION LOGIC ---
+        // ─────────────────────────────────────────────
+        // 3. UI SLIDERS + CALIBRATION
+        // ─────────────────────────────────────────────
         const smashSlider = document.getElementById('smash');
-        const smashValue = document.getElementById('smashValue');
+        const smashValue  = document.getElementById('smashValue');
         smashSlider.addEventListener('input', () => smashValue.innerText = parseFloat(smashSlider.value).toFixed(2));
 
         const stimpSlider = document.getElementById('stimp');
-        const stimpValue = document.getElementById('stimpValue');
+        const stimpValue  = document.getElementById('stimpValue');
         stimpSlider.addEventListener('input', () => stimpValue.innerText = parseFloat(stimpSlider.value).toFixed(1));
 
-        const calcBtn = document.getElementById('calcBtn');
-        calcBtn.addEventListener('click', () => {
-            let aS = parseFloat(document.getElementById('appShort').value);
-            let rS = parseFloat(document.getElementById('realShort').value);
-            let aL = parseFloat(document.getElementById('appLong').value);
-            let rL = parseFloat(document.getElementById('realLong').value);
-
+        document.getElementById('calcBtn').addEventListener('click', () => {
+            const aS = parseFloat(document.getElementById('appShort').value);
+            const rS = parseFloat(document.getElementById('realShort').value);
+            const aL = parseFloat(document.getElementById('appLong').value);
+            const rL = parseFloat(document.getElementById('realLong').value);
             if (aS && rS && aL && rL) {
-                // Determine the distance multiplier needed
-                let ratioShort = rS / aS;
-                let ratioLong = rL / aL;
-                let avgRatio = (ratioShort + ratioLong) / 2;
-
-                // Distribute the multiplier evenly across Smash and Stimp
-                let distributionFactor = Math.sqrt(avgRatio);
-                
-                let newSmash = 1.0 * Math.sqrt(distributionFactor); // Smash is squared in physics
-                let newStimp = 10.0 * distributionFactor;          // Stimp is linear
-
-                // Clamp limits so the sliders don't break
-                newSmash = Math.max(0.5, Math.min(2.5, newSmash));
-                newStimp = Math.max(4.0, Math.min(20.0, newStimp));
-
-                // Apply values
+                const avgRatio = ((rS/aS) + (rL/aL)) / 2;
+                const df = Math.sqrt(avgRatio);
+                let newSmash = Math.max(0.5, Math.min(2.5, 1.0 * Math.sqrt(df)));
+                let newStimp = Math.max(4.0, Math.min(20.0, 10.0 * df));
                 smashSlider.value = newSmash;
                 smashValue.innerText = newSmash.toFixed(2);
                 stimpSlider.value = newStimp;
                 stimpValue.innerText = newStimp.toFixed(1);
-
-                alert(`Success!\nCalibrated Smash Factor to: ${newSmash.toFixed(2)}\nCalibrated Stimp to: ${newStimp.toFixed(1)}`);
+                alert(`Calibrated!\nSmash: ${newSmash.toFixed(2)}  Stimp: ${newStimp.toFixed(1)}`);
             } else {
-                alert("Please fill out all 4 distance fields to calibrate.");
+                alert("Fill out all 4 fields.");
             }
         });
 
-        // --- 5. CAMERA TRACKING SETUP ---
+        // ─────────────────────────────────────────────
+        // 4. CAMERA TRACKING — REAR CAMERA, PARTIAL PUTTER
+        //
+        //  Strategy: optical-flow brightness difference between frames.
+        //  We don't need to see the full putter — any significant
+        //  horizontal motion signal is enough to get peak speed.
+        //
+        //  States:
+        //    IDLE       – nothing moving
+        //    RESTING    – putter still in frame, building calibration baseline
+        //    BACKSWING  – putter left frame going back
+        //    FORWARD    – putter re-entering frame, accumulating peak speed
+        //    FIRED      – impact captured, waiting for ball to stop
+        // ─────────────────────────────────────────────
         const videoElement = document.createElement('video');
         videoElement.setAttribute('playsinline', '');
         videoElement.setAttribute('autoplay', '');
-        
+
         const trackerCanvas = document.getElementById('trackerCanvas');
         const ctx = trackerCanvas.getContext('2d', { willReadFrequently: true });
-        
-        const C_WIDTH = 160;
-        const C_HEIGHT = 120;
+
+        const C_WIDTH = 160, C_HEIGHT = 120;
         trackerCanvas.width = C_WIDTH;
         trackerCanvas.height = C_HEIGHT;
 
         let cameraActive = false;
-        const startBtn = document.getElementById('startBtn');
-        const statusTxt = document.getElementById('status');
-        const distanceDisplay = document.getElementById('distanceDisplay');
+        let prevFrameGray = null;   // Uint8Array of grayscale from last frame
 
-        startBtn.addEventListener('click', async () => {
+        // Motion detection state machine
+        const STATE = { IDLE:'IDLE', RESTING:'RESTING', BACKSWING:'BACKSWING', FORWARD:'FORWARD', FIRED:'FIRED' };
+        let trackState = STATE.IDLE;
+
+        // Calibration: how many pixels of motion means "putter visible & still"
+        let restMotionBaseline = null;   // average motion when putter is at rest
+        let restFrameCount = 0;
+        let restMotionAccum = 0;
+        const REST_FRAMES_NEEDED = 30;   // ~0.5 s of stillness to calibrate
+
+        // Peak speed capture
+        let peakMotion = 0;
+        let forwardFrames = 0;
+        const FORWARD_WINDOW = 8;  // frames to watch after re-entry
+
+        // Motion threshold relative to baseline
+        // "moving fast" = motion > baseline * MOTION_MOVING_MULT
+        const MOTION_MOVING_MULT = 4.0;
+        // "at rest" = motion < baseline * MOTION_REST_MULT
+        const MOTION_REST_MULT  = 2.0;
+
+        const statusTxt       = document.getElementById('status');
+        const distanceDisplay = document.getElementById('distanceDisplay');
+        const speedDisplay    = document.getElementById('speedDisplay');
+        const dirDisplay      = document.getElementById('directionDisplay');
+        const calBadge        = document.getElementById('calBadge');
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "user", width: { ideal: C_WIDTH }, height: { ideal: C_HEIGHT } } 
+                // *** REAR CAMERA: facingMode "environment" ***
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { exact: "environment" },
+                        width:  { ideal: C_WIDTH },
+                        height: { ideal: C_HEIGHT }
+                    }
                 });
                 videoElement.srcObject = stream;
-                
                 videoElement.onloadedmetadata = () => {
                     videoElement.play();
                     cameraActive = true;
-                    startBtn.style.display = 'none';
-                    statusTxt.innerText = "Tracking Active! Move red shaft.";
+                    document.getElementById('startBtn').style.display = 'none';
+                    statusTxt.innerText = "Camera active. Rest putter in view to calibrate.";
                 };
             } catch (err) {
-                statusTxt.innerText = "Error: Allow Camera Access!";
+                // Fallback: try without "exact" in case device doesn't support it
+                try {
+                    const stream2 = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: "environment" }
+                    });
+                    videoElement.srcObject = stream2;
+                    videoElement.onloadedmetadata = () => {
+                        videoElement.play();
+                        cameraActive = true;
+                        document.getElementById('startBtn').style.display = 'none';
+                        statusTxt.innerText = "Camera active. Rest putter in view to calibrate.";
+                    };
+                } catch (err2) {
+                    statusTxt.innerText = "Error: Allow Camera Access!";
+                    console.error(err2);
+                }
             }
         });
 
-        function trackRedShaft() {
+        // Convert RGBA pixel data to grayscale array
+        function toGray(data) {
+            const gray = new Uint8Array(C_WIDTH * C_HEIGHT);
+            for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+                gray[j] = (data[i] * 77 + data[i+1] * 150 + data[i+2] * 29) >> 8;
+            }
+            return gray;
+        }
+
+        // Compute mean absolute difference between two grayscale frames
+        function frameDiff(a, b) {
+            let sum = 0;
+            for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+            return sum / a.length;
+        }
+
+        // Horizontal motion estimate: column-wise brightness centroid shift
+        // Returns signed value: positive = motion to the right
+        function horizontalFlow(a, b) {
+            // Weighted column centroid of difference image
+            let sumW = 0, sumWX = 0;
+            for (let y = 0; y < C_HEIGHT; y++) {
+                for (let x = 0; x < C_WIDTH; x++) {
+                    const idx = y * C_WIDTH + x;
+                    const diff = Math.abs(a[idx] - b[idx]);
+                    if (diff > 15) {
+                        sumW  += diff;
+                        sumWX += diff * x;
+                    }
+                }
+            }
+            if (sumW < 100) return 0;
+            // Normalise to -1..+1 range
+            return ((sumWX / sumW) / C_WIDTH - 0.5) * 2;
+        }
+
+        function calculateDistance(peakPx) {
+            const smash = parseFloat(smashSlider.value);
+            const stimp  = parseFloat(stimpSlider.value);
+            const friction = 0.0012 * (10 / stimp);
+
+            // Convert peak pixel motion to a velocity proxy.
+            // We normalise peakPx against the frame width so the formula
+            // is resolution-independent.
+            const velProxy = (peakPx / C_WIDTH) * smash * 2.0;
+            const distUnits = (velProxy * velProxy) / (2 * friction);
+            const rawYards = distUnits * 3.5;
+
+            let yards = Math.floor(rawYards);
+            let feet  = Math.round((rawYards - yards) * 3);
+            if (feet === 3) { yards++; feet = 0; }
+            return { yards, feet };
+        }
+
+        // ─────────────────────────────────────────────
+        // Core tracking function — called every animation frame
+        // ─────────────────────────────────────────────
+        function trackPutter() {
             if (!cameraActive || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
             ctx.drawImage(videoElement, 0, 0, C_WIDTH, C_HEIGHT);
             const frame = ctx.getImageData(0, 0, C_WIDTH, C_HEIGHT);
-            const data = frame.data;
+            const gray  = toGray(frame.data);
 
-            let sumX = 0;
-            let count = 0;
+            if (!prevFrameGray) { prevFrameGray = gray; return; }
 
-            for (let i = 0; i < data.length; i += 4) {
-                let r = data[i];
-                let g = data[i+1];
-                let b = data[i+2];
+            const motion = frameDiff(gray, prevFrameGray);          // overall motion magnitude
+            const hFlow  = horizontalFlow(gray, prevFrameGray);     // direction (-1=left, +1=right)
+            prevFrameGray = gray;
 
-                if (r > 130 && r > g * 1.6 && r > b * 1.6) {
-                    let x = (i / 4) % C_WIDTH;
-                    sumX += x;
-                    count++;
-                    data[i] = 255; data[i+1] = 0; data[i+2] = 255;
+            // ── Visualise motion pixels on canvas overlay ──
+            const disp = ctx.getImageData(0, 0, C_WIDTH, C_HEIGHT);
+            if (restMotionBaseline !== null) {
+                for (let y = 0; y < C_HEIGHT; y++) {
+                    for (let x = 0; x < C_WIDTH; x++) {
+                        const i = (y * C_WIDTH + x);
+                        const pi = i * 4;
+                        const diff = Math.abs(gray[i] - prevFrameGray[i] || 0);
+                        if (diff > 20) {
+                            disp.data[pi]   = 255;
+                            disp.data[pi+1] = 100;
+                            disp.data[pi+2] = 0;
+                        }
+                    }
                 }
+                ctx.putImageData(disp, 0, 0);
             }
 
-            ctx.putImageData(frame, 0, 0);
+            // ── State machine ──
+            switch (trackState) {
 
-            if (count > 15) {
-                let avgX = sumX / count;
-                // Base direct mapping without sensitivity multiplier
-                let normalizedX = -1 * (((avgX / C_WIDTH) - 0.5) * 2); 
-                targetRotZ = normalizedX * 0.8; 
+                case STATE.IDLE:
+                case STATE.RESTING: {
+                    // If no baseline yet, accumulate rest data
+                    if (restMotionBaseline === null) {
+                        if (motion < 3.0) {  // very little motion = putter at rest
+                            restMotionAccum += motion;
+                            restFrameCount++;
+                            const pct = Math.round((restFrameCount / REST_FRAMES_NEEDED) * 100);
+                            calBadge.innerText = `Calibrating… ${pct}%`;
+                            if (restFrameCount >= REST_FRAMES_NEEDED) {
+                                restMotionBaseline = restMotionAccum / restFrameCount;
+                                calBadge.innerText = `Cal: ✓ (${restMotionBaseline.toFixed(2)})`;
+                                trackState = STATE.RESTING;
+                                statusTxt.innerText = "Calibrated! Now take your stroke.";
+                            }
+                        } else {
+                            // Motion interrupted calibration — reset
+                            restMotionAccum = 0;
+                            restFrameCount  = 0;
+                            calBadge.innerText = `Cal: Hold still…`;
+                        }
+                    } else {
+                        // We have a baseline. Watch for back-swing (putter leaves view = motion spikes then drops)
+                        const movingThresh = restMotionBaseline * MOTION_MOVING_MULT;
+                        if (motion > movingThresh) {
+                            trackState = STATE.BACKSWING;
+                            dirDisplay.innerText = "State: Backswing";
+                            statusTxt.innerText  = "Backswing detected…";
+                        }
+                    }
+                    break;
+                }
+
+                case STATE.BACKSWING: {
+                    // Putter went back and may have left frame entirely.
+                    // When motion drops back near zero OR reverses, switch to FORWARD watch.
+                    const movingThresh = restMotionBaseline * MOTION_MOVING_MULT;
+                    if (motion < movingThresh * 0.5) {
+                        // Putter out of view — wait for it to return
+                        trackState  = STATE.FORWARD;
+                        peakMotion  = 0;
+                        forwardFrames = 0;
+                        dirDisplay.innerText = "State: Waiting for return…";
+                        statusTxt.innerText  = "Watching for forward stroke…";
+                    }
+                    break;
+                }
+
+                case STATE.FORWARD: {
+                    // Accumulate peak motion over the next FORWARD_WINDOW frames
+                    // so we capture speed at the impact zone even though the
+                    // putter is only partially visible and moving very fast.
+                    forwardFrames++;
+                    if (motion > peakMotion) peakMotion = motion;
+                    speedDisplay.innerText = `Peak Motion: ${peakMotion.toFixed(2)}`;
+
+                    // Once putter has clearly passed (motion spikes then drops again)
+                    // OR we've sampled enough frames, fire the shot
+                    const movingThresh = restMotionBaseline * MOTION_MOVING_MULT;
+                    const done = (forwardFrames >= FORWARD_WINDOW) ||
+                                 (forwardFrames > 2 && motion < movingThresh * 0.4);
+
+                    if (done && peakMotion > restMotionBaseline * 2.0) {
+                        // ── FIRE ──
+                        trackState = STATE.FIRED;
+
+                        const d = calculateDistance(peakMotion);
+                        distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
+                        dirDisplay.innerText = `State: FIRED (peak ${peakMotion.toFixed(1)})`;
+                        statusTxt.innerText  = `Shot! ${d.yards}y ${d.feet}f`;
+
+                        // Animate ball in 3D
+                        const smash = parseFloat(smashSlider.value);
+                        const stimp  = parseFloat(stimpSlider.value);
+                        const friction = 0.0012 * (10 / stimp);
+                        const velProxy = (peakMotion / C_WIDTH) * smash * 2.0;
+
+                        ballVelX = -velProxy * 0.04;   // scale to scene units
+                        ballVelZ = 0;
+
+                        // After 4 seconds, reset
+                        setTimeout(() => {
+                            ballVelX = 0; ballVelZ = 0;
+                            ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
+                            trackState = STATE.RESTING;
+                            dirDisplay.innerText = "State: Ready";
+                            statusTxt.innerText  = "Ready for next putt.";
+                        }, 4000);
+                    } else if (done) {
+                        // Motion was there but too weak — false positive, go back to resting
+                        trackState = STATE.RESTING;
+                        dirDisplay.innerText = "State: Ready";
+                    }
+                    break;
+                }
+
+                case STATE.FIRED:
+                    // Waiting for reset timer — do nothing
+                    break;
+            }
+
+            // ── Use horizontal flow to animate 3D mannequin face angle ──
+            if (Math.abs(hFlow) > 0.05) {
+                targetRotZ = hFlow * 0.8;
             }
         }
 
-        function calculateDistance(velX, velZ, friction) {
-            let v0 = Math.sqrt(velX * velX + velZ * velZ);
-            let distanceUnits = (v0 * v0) / (2 * friction);
-            let rawYards = distanceUnits * 3.5; 
-            
-            let yards = Math.floor(rawYards);
-            let feet = Math.round((rawYards - yards) * 3);
-            if (feet === 3) { yards += 1; feet = 0; }
-            return { yards, feet };
-        }
-
-        // --- 6. ANIMATION & PHYSICS ENGINE ---
+        // ─────────────────────────────────────────────
+        // 5. ANIMATION LOOP
+        // ─────────────────────────────────────────────
         function animate() {
             requestAnimationFrame(animate);
-            
-            trackRedShaft();
+            trackPutter();
 
             currRotZ += (targetRotZ - currRotZ) * 0.15;
             pivot.rotation.z = currRotZ;
 
-            clubHead.getWorldPosition(currentClubPos);
-            let currentStimp = parseFloat(stimpSlider.value);
-            let dynamicFriction = 0.0012 * (10 / currentStimp); 
-
-            if (ballVelX === 0 && ballVelZ === 0) {
-                let faceWorldX = currentClubPos.x - 0.2; 
-                let lastFaceWorldX = lastClubPos.x - 0.2;
-                let ballRightEdge = ball.position.x + ballRadius;
-
-                if (lastFaceWorldX > ballRightEdge && faceWorldX <= ballRightEdge) {
-                    let clubSpeed = Math.abs(currentClubPos.x - lastClubPos.x);
-                    
-                    if (clubSpeed > 0.005) { 
-                        let smash = parseFloat(smashSlider.value);
-                        let physicsScale = 1.5; 
-                        
-                        ballVelX = -clubSpeed * smash * physicsScale; 
-                        
-                        let d = calculateDistance(ballVelX, ballVelZ, dynamicFriction);
-                        distanceDisplay.innerText = `Dist: ${d.yards}y ${d.feet}f`;
-                        
-                        setTimeout(() => {
-                            ballVelX = 0; ballVelZ = 0;
-                            ball.position.set(TEE_POS.x, TEE_POS.y, TEE_POS.z);
-                        }, 4000);
-                    }
-                }
-            }
-            
-            lastClubPos.copy(currentClubPos);
+            const currentStimp   = parseFloat(stimpSlider.value);
+            const dynamicFriction = 0.0012 * (10 / currentStimp);
 
             if (Math.abs(ballVelX) > 0 || Math.abs(ballVelZ) > 0) {
                 ball.position.x += ballVelX;
                 ball.position.z += ballVelZ;
-                
-                let speed = Math.sqrt(ballVelX * ballVelX + ballVelZ * ballVelZ);
-                
+
+                const speed = Math.sqrt(ballVelX*ballVelX + ballVelZ*ballVelZ);
                 if (speed > dynamicFriction) {
-                    let dropX = (Math.abs(ballVelX) / speed) * dynamicFriction;
-                    let dropZ = (Math.abs(ballVelZ) / speed) * dynamicFriction;
-                    
-                    if (ballVelX > 0) ballVelX = Math.max(0, ballVelX - dropX);
-                    else ballVelX = Math.min(0, ballVelX + dropX);
-                    
-                    if (ballVelZ > 0) ballVelZ = Math.max(0, ballVelZ - dropZ);
-                    else ballVelZ = Math.min(0, ballVelZ + dropZ);
+                    const dropX = (Math.abs(ballVelX) / speed) * dynamicFriction;
+                    const dropZ = (Math.abs(ballVelZ) / speed) * dynamicFriction;
+                    ballVelX = ballVelX > 0 ? Math.max(0, ballVelX - dropX) : Math.min(0, ballVelX + dropX);
+                    ballVelZ = ballVelZ > 0 ? Math.max(0, ballVelZ - dropZ) : Math.min(0, ballVelZ + dropZ);
                 } else {
                     ballVelX = 0; ballVelZ = 0;
                 }
             }
 
-            renderer.render(scene, camera);
+            renderer.render(scene, camera3D);
         }
-        
+
         clubHead.getWorldPosition(lastClubPos);
         animate();
 
         window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
+            camera3D.aspect = window.innerWidth / window.innerHeight;
+            camera3D.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
     </script>
