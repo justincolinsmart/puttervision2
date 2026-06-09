@@ -3,273 +3,165 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Golf Swing Skeleton Matcher</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-    
+    <title>Video Player with Live Overlay</title>
     <style>
+        /* Base Styling */
         body {
             font-family: system-ui, -apple-system, sans-serif;
-            background-color: #1e1e1e;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background-color: #121212;
             color: #ffffff;
-            margin: 0;
-            padding: 20px;
+        }
+
+        /* Control Panel */
+        .controls {
+            background: #1e1e1e;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            margin-bottom: 1.5rem;
             display: flex;
             flex-direction: column;
-            align-items: center;
+            gap: 1rem;
         }
-        .controls {
-            background: #2d2d2d;
-            padding: 15px 25px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+
+        .control-group {
             display: flex;
-            gap: 20px;
             align-items: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            gap: 1rem;
         }
-        .controls input[type="file"] {
+
+        .control-group label {
+            min-width: 140px;
+            font-weight: 600;
+        }
+
+        input[type="range"] {
+            flex-grow: 1;
+            cursor: pointer;
+        }
+
+        .value-display {
+            min-width: 50px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        input[type="file"] {
             color: #fff;
         }
+
+        /* Video Container */
         .video-wrapper {
             position: relative;
+            width: 100%;
             background: #000;
-            border: 2px solid #444;
             border-radius: 8px;
             overflow: hidden;
-            /* Default dimensions, will scale based on video */
-            width: 800px; 
-            min-height: 450px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         }
-        #refVideo {
+
+        #mainVideo {
             width: 100%;
             display: block;
         }
-        #overlayCanvas {
+
+        #webcamVideo {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none; /* Let clicks pass through */
-        }
-        /* Keep webcam invisible, we only need it for data */
-        #webcamVideo {
-            display: none;
-        }
-        #status {
-            margin-top: 10px;
-            color: #ffaa00;
-            font-weight: bold;
+            object-fit: cover; /* Stretches the webcam to fill the video box */
+            opacity: 0.5; /* Default see-through level */
+            z-index: 10;
+            /* CRITICAL: Allows your mouse clicks to pass through to the main video controls below */
+            pointer-events: none; 
         }
     </style>
 </head>
 <body>
 
     <div class="controls">
-        <div>
-            <label for="videoUpload"><strong>1. Select Swing Video:</strong> </label>
+        <div class="control-group">
+            <label for="videoUpload">1. Select Video:</label>
             <input type="file" id="videoUpload" accept="video/*">
         </div>
-        <div>
-            <label for="speedSlider"><strong>2. Playback Speed:</strong> <span id="speedLabel">1.0x</span></label>
+
+        <div class="control-group">
+            <label for="speedSlider">2. Playback Speed:</label>
             <input type="range" id="speedSlider" min="0.25" max="4" step="0.25" value="1">
+            <span class="value-display" id="speedValue">1.00x</span>
+        </div>
+
+        <div class="control-group">
+            <label for="opacitySlider">3. Live Opacity:</label>
+            <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.5">
+            <span class="value-display" id="opacityValue">50%</span>
         </div>
     </div>
 
-    <div id="status">Loading AI Models... Please grant webcam permissions.</div>
-
     <div class="video-wrapper">
-        <video id="refVideo" loop playsinline muted></video>
-        <canvas id="overlayCanvas"></canvas>
+        <video id="mainVideo" controls>
+            Your browser does not support the video tag.
+        </video>
+        <video id="webcamVideo" autoplay muted playsinline></video>
     </div>
 
-    <video id="webcamVideo" autoplay playsinline muted></video>
-
     <script>
-        const refVideo = document.getElementById('refVideo');
-        const webcamVideo = document.getElementById('webcamVideo');
-        const overlayCanvas = document.getElementById('overlayCanvas');
-        const ctx = overlayCanvas.getContext('2d');
-        const statusEl = document.getElementById('status');
-        
-        // Controls
+        // Grab our HTML elements
         const videoUpload = document.getElementById('videoUpload');
+        const mainVideo = document.getElementById('mainVideo');
+        const webcamVideo = document.getElementById('webcamVideo');
         const speedSlider = document.getElementById('speedSlider');
-        const speedLabel = document.getElementById('speedLabel');
+        const speedValue = document.getElementById('speedValue');
+        const opacitySlider = document.getElementById('opacitySlider');
+        const opacityValue = document.getElementById('opacityValue');
 
-        let detector;
-        let animationFrameId;
+        // 1. Handle Video Upload
+        videoUpload.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                // Create a temporary local URL for the uploaded file
+                const videoURL = URL.createObjectURL(file);
+                mainVideo.src = videoURL;
+                mainVideo.load();
+                mainVideo.play();
+            }
+        });
 
-        // Connections to draw the stick figure
-        const SKELETON_PAIRS = [
-            ['nose', 'left_eye'], ['nose', 'right_eye'], ['left_eye', 'left_ear'], ['right_eye', 'right_ear'],
-            ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'], ['right_shoulder', 'right_elbow'],
-            ['left_elbow', 'left_wrist'], ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
-            ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'], ['left_hip', 'left_knee'],
-            ['right_hip', 'right_knee'], ['left_knee', 'left_ankle'], ['right_knee', 'right_ankle']
-        ];
+        // 2. Handle Playback Speed (between 0.25x and 4x)
+        speedSlider.addEventListener('input', function() {
+            const speed = parseFloat(this.value);
+            mainVideo.playbackRate = speed;
+            speedValue.textContent = speed.toFixed(2) + 'x';
+        });
 
-        // 1. Initialize System
-        async function init() {
+        // 3. Handle Webcam Opacity (See-through level)
+        opacitySlider.addEventListener('input', function() {
+            const opacity = parseFloat(this.value);
+            webcamVideo.style.opacity = opacity;
+            opacityValue.textContent = Math.round(opacity * 100) + '%';
+        });
+
+        // 4. Initialize Live Webcam Feed
+        async function setupWebcam() {
             try {
-                // Request Webcam
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                // Request camera access from the browser
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 webcamVideo.srcObject = stream;
-                
-                // Load MoveNet Model
-                const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
-                detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
-                
-                statusEl.innerText = "Ready! Please upload a golf swing video.";
-                statusEl.style.color = "#00ff00";
-
-                // Ensure webcam is playing before estimating
-                webcamVideo.onloadedmetadata = () => webcamVideo.play();
-
             } catch (err) {
-                statusEl.innerText = "Error: Webcam access denied or model failed to load.";
-                console.error(err);
+                console.error("Camera access error: ", err);
+                alert("Could not access the webcam. Please make sure you granted camera permissions in your browser.");
             }
         }
 
-        // 2. Handle File Upload
-        videoUpload.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const fileURL = URL.createObjectURL(file);
-            refVideo.src = fileURL;
-            
-            refVideo.onloadedmetadata = () => {
-                // Match canvas size to video resolution
-                overlayCanvas.width = refVideo.videoWidth;
-                overlayCanvas.height = refVideo.videoHeight;
-                refVideo.play();
-                statusEl.innerText = "Processing live overlay...";
-                
-                // Start the tracking loop
-                if (animationFrameId) cancelAnimationFrame(animationFrameId);
-                processFrames();
-            };
-        });
-
-        // 3. Handle Playback Speed
-        speedSlider.addEventListener('input', function(e) {
-            const speed = e.target.value;
-            refVideo.playbackRate = speed;
-            speedLabel.innerText = speed + "x";
-        });
-
-        // 4. Main AI Loop
-        async function processFrames() {
-            if (refVideo.paused || refVideo.ended) {
-                animationFrameId = requestAnimationFrame(processFrames);
-                return;
-            }
-
-            // Estimate poses for both videos
-            const refPoses = await detector.estimatePoses(refVideo);
-            const livePoses = await detector.estimatePoses(webcamVideo);
-
-            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-            if (refPoses.length > 0 && livePoses.length > 0) {
-                const refKeypoints = refPoses[0].keypoints;
-                const liveKeypoints = livePoses[0].keypoints;
-
-                drawNormalizedSkeleton(refKeypoints, liveKeypoints);
-            }
-
-            animationFrameId = requestAnimationFrame(processFrames);
-        }
-
-        // 5. Math & Rendering: Normalize and Draw
-        function drawNormalizedSkeleton(refPts, livePts) {
-            // Helper to get a point by name
-            const getPt = (pts, name) => pts.find(p => p.name === name);
-
-            // Get anchors: Nose (top) and Ankles/Hips (bottom)
-            const refNose = getPt(refPts, 'nose');
-            const refLAnkle = getPt(refPts, 'left_ankle');
-            const refRAnkle = getPt(refPts, 'right_ankle');
-            
-            const liveNose = getPt(livePts, 'nose');
-            const liveLAnkle = getPt(livePts, 'left_ankle');
-            const liveRAnkle = getPt(livePts, 'right_ankle');
-
-            // We need a decent confidence score to do math
-            if (!refNose || !liveNose || refNose.score < 0.2 || liveNose.score < 0.2) return;
-
-            // Calculate Mid-point of feet (anchor point)
-            // Fallback to hips if feet aren't in frame
-            let refBaseY, refBaseX, liveBaseY, liveBaseX;
-
-            if (refLAnkle.score > 0.2 && refRAnkle.score > 0.2 && liveLAnkle.score > 0.2 && liveRAnkle.score > 0.2) {
-                refBaseY = (refLAnkle.y + refRAnkle.y) / 2;
-                refBaseX = (refLAnkle.x + refRAnkle.x) / 2;
-                liveBaseY = (liveLAnkle.y + liveRAnkle.y) / 2;
-                liveBaseX = (liveLAnkle.x + liveRAnkle.x) / 2;
-            } else {
-                const refLHip = getPt(refPts, 'left_hip');
-                const refRHip = getPt(refPts, 'right_hip');
-                const liveLHip = getPt(livePts, 'left_hip');
-                const liveRHip = getPt(livePts, 'right_hip');
-                
-                refBaseY = (refLHip.y + refRHip.y) / 2;
-                refBaseX = (refLHip.x + refRHip.x) / 2;
-                liveBaseY = (liveLHip.y + liveRHip.y) / 2;
-                liveBaseX = (liveLHip.x + liveRHip.x) / 2;
-            }
-
-            // Calculate heights to find scale factor
-            const refHeight = refBaseY - refNose.y;
-            const liveHeight = liveBaseY - liveNose.y;
-            const scale = refHeight / liveHeight;
-
-            // Normalize the live points to match the reference video's scale and anchor
-            const normalizedLivePts = livePts.map(pt => {
-                return {
-                    name: pt.name,
-                    score: pt.score,
-                    // Translate to origin, scale, then translate to reference anchor
-                    x: ((pt.x - liveBaseX) * scale) + refBaseX,
-                    y: ((pt.y - liveBaseY) * scale) + refBaseY
-                };
-            });
-
-            // Draw the Skeleton
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = '#00ffcc'; // Neon cyan color for your live skeleton
-            ctx.fillStyle = '#ff0044';
-
-            // Draw Lines (Bones)
-            SKELETON_PAIRS.forEach(pair => {
-                const pt1 = getPt(normalizedLivePts, pair[0]);
-                const pt2 = getPt(normalizedLivePts, pair[1]);
-
-                if (pt1 && pt2 && pt1.score > 0.3 && pt2.score > 0.3) {
-                    ctx.beginPath();
-                    ctx.moveTo(pt1.x, pt1.y);
-                    ctx.lineTo(pt2.x, pt2.y);
-                    ctx.stroke();
-                }
-            });
-
-            // Draw Points (Joints)
-            normalizedLivePts.forEach(pt => {
-                if (pt.score > 0.3) {
-                    ctx.beginPath();
-                    ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
-                    ctx.fill();
-                }
-            });
-        }
-
-        // Run initialization
-        init();
+        // Start the webcam as soon as the page loads
+        setupWebcam();
     </script>
 </body>
 </html>
