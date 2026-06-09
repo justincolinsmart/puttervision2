@@ -2,426 +2,277 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Golf Pro - Ultimate Sequential Trainer</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Golf Ghost Analyzer</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    
     <style>
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0a0a0a; color: #eee; margin: 0; padding: 10px; overflow-x: hidden; }
-        .stats-bar { display: flex; justify-content: space-around; background: #111; padding: 12px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #333; }
-        .stat-value { font-size: 1.5em; font-weight: bold; color: #00d2ff; }
-        .stat-label { font-size: 0.7em; color: #888; text-transform: uppercase; }
-        
-        /* Highlight specific target state text */
-        #activeStateDisplay { color: #f1c40f; font-size: 1.2em; font-weight: bold; letter-spacing: 1px; }
-
-        .dual-hud { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; position: sticky; top: 0; z-index: 100; }
-        @media (min-width: 600px) { .dual-hud { grid-template-columns: repeat(6, 1fr); } }
-        .hud-card { background: #222; padding: 8px; border-radius: 10px; border: 2px solid #444; opacity: 0.4; transition: 0.3s; font-size: 0.8em; }
-        .hud-card.active-tab { border-color: #0984e3; background: #1a2a3a; opacity: 1; }
-        
-        /* HUD State Tracking */
-        .hud-card.highest { border-color: #2ecc71 !important; background: #1b4d2e !important; box-shadow: 0 0 10px rgba(46, 204, 113, 0.4); opacity: 1; }
-        .hud-card.target-tab { border-color: #f1c40f !important; background: #3d3305 !important; box-shadow: 0 0 15px rgba(241, 196, 15, 0.6); opacity: 1; animation: pulse 1.5s infinite; }
-        
-        @keyframes pulse {
-            0% { box-shadow: 0 0 5px rgba(241, 196, 15, 0.4); }
-            50% { box-shadow: 0 0 20px rgba(241, 196, 15, 0.8); }
-            100% { box-shadow: 0 0 5px rgba(241, 196, 15, 0.4); }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
         }
-
-        .score-val { font-size: 1.1em; font-weight: bold; }
-        
-        .result-panel { background: #1a1a1a; padding: 15px; border-radius: 12px; margin-top: 10px; border: 1px solid #00d2ff; display: none; }
-        .selector-group { margin: 10px 0; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; align-items: center; }
-        select { padding: 8px; border-radius: 5px; background: #333; color: white; border: 1px solid #555; }
-        
-        .controls { background: #1e1e1e; padding: 12px; border-radius: 12px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px; border: 1px solid #333; }
-        .row { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; width: 100%; align-items: center; }
-        .container { position: relative; display: inline-block; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid #444; width: 100%; max-width: 800px; }
-        video { display: none; }
-        canvas { width: 100%; height: auto; display: block; }
-        .mirrored { transform: scaleX(-1); }
-        button { padding: 8px 10px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; background: #444; color: white; font-size: 0.9em; transition: 0.2s; }
-        button:hover { filter: brightness(1.2); }
-        .btn-live { background: #0984e3; }
-        .btn-train { background: #d63031; }
-        .btn-save { background: #27ae60; }
-        .btn-jump { background: #34495e; min-width: 40px; }
-        .btn-load { background: #8e44ad; position: relative; overflow: hidden; }
-        .btn-load input { position: absolute; opacity: 0; right: 0; top: 0; cursor: pointer; width: 100%; height: 100%; }
-        .btn-result { background: #f39c12; color: black; }
-        
-        .slider-container { display: flex; align-items: center; gap: 10px; background: #222; padding: 8px 15px; border-radius: 8px; border: 1px solid #444; }
-        input[type=range] { flex-grow: 1; cursor: pointer; }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 800px;
+            width: 100%;
+        }
+        .controls {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            width: 100%;
+            text-align: center;
+            box-sizing: border-box;
+        }
+        canvas {
+            background-color: #000;
+            border-radius: 8px;
+            max-width: 100%;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        /* Hidden video elements used for processing */
+        #proVideo, #webcamVideo {
+            display: none; 
+        }
+        #status {
+            font-weight: bold;
+            color: #00ffcc;
+            margin-top: 10px;
+        }
+        button, input::file-selector-button {
+            background: #00ffcc;
+            border: none;
+            color: #000;
+            padding: 10px 15px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
 
-    <div class="stats-bar">
-        <div class="stat-item">
-            <div class="stat-label">Swings Completed</div>
-            <div class="stat-value" id="swingCount">0</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-label">System Status / Target</div>
-            <div class="stat-value" id="activeStateDisplay">AWAITING SETUP</div>
-        </div>
-    </div>
-
-    <div class="dual-hud">
-        <div id="hud-setup" class="hud-card" onclick="setStage('setup')">SETUP<div class="score-val" id="val-setup">0%</div></div>
-        <div id="hud-backswing" class="hud-card" onclick="setStage('backswing')">BACKSWING<div class="score-val" id="val-backswing">0%</div></div>
-        <div id="hud-top" class="hud-card" onclick="setStage('top')">TOP<div class="score-val" id="val-top">0%</div></div>
-        <div id="hud-downswing" class="hud-card" onclick="setStage('downswing')">DOWNSWING<div class="score-val" id="val-downswing">0%</div></div>
-        <div id="hud-contact" class="hud-card" onclick="setStage('contact')">CONTACT<div class="score-val" id="val-contact">0%</div></div>
-        <div id="hud-follow" class="hud-card" onclick="setStage('follow')">FOLLOW<div class="score-val" id="val-follow">0%</div></div>
-    </div>
+<div class="container">
+    <h2>🏌️ Live Golf Ghost Analyzer</h2>
     
     <div class="controls">
-        <div class="row slider-container">
-            <label for="strictnessSlider" style="font-size: 0.8em; color: #aaa; font-weight: bold;">STRICTNESS (MATCH REQUIREMENT): <span id="strictnessVal" style="color: #f1c40f;">65</span>%</label>
-            <input type="range" id="strictnessSlider" min="20" max="95" value="65" oninput="document.getElementById('strictnessVal').innerText = this.value;">
-        </div>
-
-        <div class="row">
-            <button class="btn-live" id="liveBtn">GO LIVE</button>
-            <input type="file" id="videoInput" accept="video/*" style="width: 150px; color: transparent;">
-            <button id="playPauseBtn">Play/Pause</button>
-            <button class="btn-result" onclick="toggleResultPanel()">TRAIN RESULTS</button>
-        </div>
-        <div class="row">
-            <span style="color:#888; font-size: 0.8em; align-self: center;">SCRUB:</span>
-            <button class="btn-jump" onclick="jumpFrames(-16)">-16</button>
-            <button class="btn-jump" onclick="jumpFrames(-4)">-4</button>
-            <button class="btn-jump" onclick="jumpFrames(-1)">-1</button>
-            <button class="btn-jump" onclick="jumpFrames(1)">+1</button>
-            <button class="btn-jump" onclick="jumpFrames(4)">+4</button>
-            <button class="btn-jump" onclick="jumpFrames(16)">+16</button>
-        </div>
-        <div class="row">
-            <button class="btn-train" id="trainBtn">TRAIN <span id="capLabel">SETUP</span></button>
-            <button id="undoBtn" style="background:#e67e22">UNDO</button>
-            <button class="btn-save" id="saveBtn">SAVE</button>
-            <button class="btn-load">LOAD<input type="file" id="loadInput" accept=".json"></button>
-            <button onclick="resetSwingCount()" style="background:#333">CLR</button>
-        </div>
+        <p>1. Upload a <b>short (under 5s)</b> video of a pro swing.</p>
+        <input type="file" id="videoUpload" accept="video/mp4,video/mov">
+        <div id="status">Waiting for video upload...</div>
     </div>
 
-    <div id="resultPanel" class="result-panel">
-        <h3 style="margin-top:0">Swing Result Training</h3>
-        <div class="selector-group">
-            <label>Select Swing #: </label>
-            <select id="swingSelector" onchange="loadExistingResult()"></select>
-        </div>
-        <div class="selector-group">
-            <select id="resX"><option value="straight">Straight</option><option value="pulled">Pulled</option><option value="pushed">Pushed</option></select>
-            <select id="resY"><option value="center">Center</option><option value="skulled">Skulled</option><option value="popped">Popped</option></select>
-            <select id="resCurve"><option value="neutral">Neutral</option><option value="hooked">Hooked</option><option value="sliced">Sliced</option></select>
-            <button class="btn-save" onclick="saveSwingResult()">APPLY TO SWING</button>
-        </div>
-    </div>
+    <canvas id="outputCanvas" width="640" height="480"></canvas>
+    
+    <video id="proVideo" playsinline muted></video>
+    <video id="webcamVideo" playsinline muted autoplay></video>
+</div>
 
-    <div class="container">
-        <video id="inputVideo" crossorigin="anonymous" playsinline muted></video>
-        <canvas id="outputCanvas"></canvas>
-    </div>
+<script>
+    // --- State and Variables ---
+    let appState = 'WAITING'; // WAITING -> PROCESSING_PRO -> LIVE
+    let proFramesData = [];
+    
+    // DOM Elements
+    const videoUpload = document.getElementById('videoUpload');
+    const proVideo = document.getElementById('proVideo');
+    const webcamVideo = document.getElementById('webcamVideo');
+    const canvasElement = document.getElementById('outputCanvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusText = document.getElementById('status');
 
-    <script>
-        const video = document.getElementById('inputVideo');
-        const canvas = document.getElementById('outputCanvas');
-        const ctx = canvas.getContext('2d');
-        const stages = ['setup', 'backswing', 'top', 'downswing', 'contact', 'follow'];
-        let currentTrainingStage = 'setup', dataset = {}, activeSwingIdx = -1, swingCounter = 0;
-        let lastVec = null, setupStartTime = null, isLive = false;
+    // --- Math & Normalization Logic ---
+    function getNormalizedFeatures(landmarks) {
+        // Indices: L/R Shoulders(11,12), L/R Elbows(13,14), L/R Wrists(15,16)
+        // L/R Hips(23,24), L/R Knees(25,26), L/R Ankles(27,28)
+        const keyIndices = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+        const points = keyIndices.map(i => ({ x: landmarks[i].x, y: landmarks[i].y }));
         
-        let swingResults = []; 
-        let currentSwingData = { downswing: null, contact: null, follow: null };
-        let peaks = { downswing: 0, contact: 0, follow: 0 };
-
-        stages.forEach(s => dataset[s] = []);
-
-        const trackedIDs = [11, 12, 14, 16, 18, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
-        const ignoredIDs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 15, 17, 19, 21];
-
-        const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
-        pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-
-        pose.onResults((results) => {
-            canvas.width = video.videoWidth || 640; 
-            canvas.height = video.videoHeight || 480;
-            ctx.save();
-            if(isLive) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
-            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-            if (results.poseLandmarks) {
-                const filtered = results.poseLandmarks.map((lm, idx) => ignoredIDs.includes(idx) ? {x:0,y:0,z:0,visibility:0} : lm);
-                lastVec = normalizePose(filtered);
-                drawFilteredConnectors(ctx, filtered);
-                processSequentialLogic(lastVec);
-            }
-            ctx.restore();
+        // Mid-hip (anchor point)
+        const midHip = {
+            x: (points[6].x + points[7].x) / 2,
+            y: (points[6].y + points[7].y) / 2
+        };
+        
+        // Mid-shoulder (for scale calculation)
+        const midShoulder = {
+            x: (points[0].x + points[1].x) / 2,
+            y: (points[0].y + points[1].y) / 2
+        };
+        
+        // Calculate torso length. Math.hypot calculates Euclidean distance.
+        let torsoLength = Math.hypot(midShoulder.x - midHip.x, midShoulder.y - midHip.y);
+        if (torsoLength < 1e-5) torsoLength = 1e-5; // Prevent division by zero
+        
+        // Normalize: Center at mid-hip and divide by torso length
+        let features = [];
+        points.forEach(p => {
+            features.push((p.x - midHip.x) / torsoLength);
+            features.push((p.y - midHip.y) / torsoLength);
         });
+        
+        return features;
+    }
 
-        async function startLive() {
-            try {
-                video.pause(); video.src = ""; video.srcObject = null;
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } 
-                });
-                video.srcObject = stream;
-                isLive = true;
-                canvas.classList.add('mirrored');
-                video.play().catch(e => console.log("Live Start Interrupted"));
-                runAILoop();
-            } catch (err) { alert("Camera Error: Check permissions."); }
+    function calculateDistance(f1, f2) {
+        let sum = 0;
+        for (let i = 0; i < f1.length; i++) {
+            sum += Math.pow(f1[i] - f2[i], 2);
         }
+        return Math.sqrt(sum);
+    }
 
-        async function runAILoop() {
-            if (!video.paused || isLive) {
-                if (video.readyState >= 2) {
-                    await pose.send({image: video});
-                }
-                requestAnimationFrame(runAILoop);
-            }
-        }
+    // --- Create Colored Ghost Mask ---
+    function createGhostCanvas(segmentationMask) {
+        // We render the MediaPipe segmentation mask into an off-screen canvas
+        // and colorize it so we can easily draw it later over the webcam.
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = canvasElement.width;
+        offCanvas.height = canvasElement.height;
+        const ctx = offCanvas.getContext('2d');
 
-        function normalizePose(landmarks) {
-            const rHip = landmarks[24], rSho = landmarks[12];
-            const scale = Math.sqrt(Math.pow(rHip.x - rSho.x, 2) + Math.pow(rHip.y - rSho.y, 2)) || 1;
-            let vector = [];
-            trackedIDs.forEach(id => {
-                vector.push((landmarks[id].x - rHip.x) / scale);
-                vector.push((landmarks[id].y - rHip.y) / scale);
+        // Draw the raw AI mask
+        ctx.drawImage(segmentationMask, 0, 0, offCanvas.width, offCanvas.height);
+
+        // Colorize it (Cyan with 60% opacity)
+        ctx.globalCompositeOperation = 'source-in';
+        ctx.fillStyle = 'rgba(0, 255, 200, 0.6)'; // Ghost Color
+        ctx.fillRect(0, 0, offCanvas.width, offCanvas.height);
+
+        return offCanvas;
+    }
+
+    // --- MediaPipe Pose Setup ---
+    const pose = new Pose({locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+    }});
+    
+    pose.setOptions({
+        modelComplexity: 1, // 1 is a good balance for Web speed vs accuracy
+        smoothLandmarks: true,
+        enableSegmentation: true, // Required for the silhouette!
+        smoothSegmentation: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    pose.onResults(onResults);
+
+    function onResults(results) {
+        if (!results.poseLandmarks || !results.segmentationMask) return;
+
+        const features = getNormalizedFeatures(results.poseLandmarks);
+
+        if (appState === 'PROCESSING_PRO') {
+            // Store the pro frame data
+            const ghostCanvas = createGhostCanvas(results.segmentationMask);
+            proFramesData.push({
+                features: features,
+                ghost: ghostCanvas
             });
-            return vector;
-        }
-
-        function processSequentialLogic(vec) {
-            const probs = {};
-            let maxVal = -1, currentLeader = '';
-            let hasData = false;
             
-            // Step 1: Calculate similarity scores based on training data
-            stages.forEach(label => {
-                if (dataset[label].length === 0) { probs[label] = 0; return; }
-                hasData = true;
-                let sim = 0;
-                dataset[label].forEach(s => {
-                    let d = 0;
-                    for (let i = 0; i < vec.length; i++) d += Math.pow(vec[i] - s[i], 2);
-                    sim += 1 / (Math.sqrt(d) + 0.1);
-                });
-                probs[label] = sim / dataset[label].length;
-            });
+            // Draw progress to screen so the user sees it working
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            statusText.innerText = `Analyzing Pro Video... Saved ${proFramesData.length} frames.`;
+            
+        } else if (appState === 'LIVE') {
+            // 1. Draw Live Webcam Feed
+            canvasCtx.save();
+            // Mirror the webcam feed horizontally for a natural feel
+            canvasCtx.scale(-1, 1);
+            canvasCtx.translate(-canvasElement.width, 0);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.restore();
 
-            if(!hasData) return; // Prevent logic if nothing is trained yet
-
-            const sum = stages.reduce((a, b) => a + probs[b], 0) || 1;
-            stages.forEach(l => {
-                probs[l] = (probs[l] / sum) * 100; // Convert to percentage
-                if (probs[l] > maxVal && dataset[l].length > 0) { maxVal = probs[l]; currentLeader = l; }
-                document.getElementById(`val-${l}`).innerText = dataset[l].length > 0 ? `${probs[l].toFixed(0)}%` : "0%";
-            });
-
-            // Step 2: Strict Sequential Gateway Logic
-            let strictness = parseInt(document.getElementById('strictnessSlider').value);
-            const displayHUD = document.getElementById('activeStateDisplay');
-
-            // Reset HUD colors first
-            stages.forEach(l => {
-                const card = document.getElementById(`hud-${l}`);
-                if (card) card.classList.remove('highest', 'target-tab');
-            });
-
-            // State -1: Awaiting Setup Start
-            if (activeSwingIdx === -1) {
-                document.getElementById('hud-setup').classList.add('target-tab');
-                displayHUD.innerText = "TARGET: SETUP";
-                displayHUD.style.color = "#f1c40f";
-
-                if (probs['setup'] >= strictness) {
-                    if (!setupStartTime) setupStartTime = Date.now();
-                    let elapsed = Date.now() - setupStartTime;
-                    
-                    displayHUD.innerText = `HOLD SETUP ${(1.0 - elapsed/1000).toFixed(1)}s`;
-                    displayHUD.style.color = "#00d2ff";
-
-                    if (elapsed >= 1000) { 
-                        activeSwingIdx = 0; // Move to State 0 (Setup Achieved, targeting Backswing)
-                        setupStartTime = null; 
-                        peaks = { downswing: 0, contact: 0, follow: 0 };
-                        currentSwingData = { downswing: null, contact: null, follow: null };
-                    }
-                } else { 
-                    setupStartTime = null; 
-                }
-            } 
-            // State 0 to 4: Mid-Swing (Strict Progression)
-            else if (activeSwingIdx < 5) {
-                const currentStageName = stages[activeSwingIdx];
-                const nextStageName = stages[activeSwingIdx + 1];
-
-                // Mark current stage green (completed), target stage yellow (pulsing)
-                document.getElementById(`hud-${currentStageName}`).classList.add('highest');
-                document.getElementById(`hud-${nextStageName}`).classList.add('target-tab');
-                
-                displayHUD.innerText = `TARGET: ${nextStageName.toUpperCase()}`;
-                displayHUD.style.color = "#f1c40f";
-
-                // Track peaks for later results analysis if we are in the later half of the swing
-                if (activeSwingIdx >= 3) {
-                    if(probs[currentStageName] > peaks[currentStageName]) {
-                        peaks[currentStageName] = probs[currentStageName];
-                        currentSwingData[currentStageName] = [...vec];
-                    }
-                }
-
-                // **THE GATEWAY:** Do not progress until the strictness requirement is met!
-                if (probs[nextStageName] >= strictness) {
-                    activeSwingIdx++; 
-                }
-            } 
-            // State 5: Follow Through Achieved
-            else if (activeSwingIdx === 5) {
-                document.getElementById('hud-follow').classList.add('highest');
-                displayHUD.innerText = "SWING COMPLETE!";
-                displayHUD.style.color = "#2ecc71";
-
-                // Finalize and reset when they drop their pose
-                if (probs.follow < strictness - 15 || probs.setup >= strictness) { 
-                    finalizeSwing();
-                    activeSwingIdx = -1; 
+            // 2. Find closest Pro frame
+            let bestMatchIdx = 0;
+            let minDistance = Infinity;
+            
+            for (let i = 0; i < proFramesData.length; i++) {
+                let dist = calculateDistance(features, proFramesData[i].features);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestMatchIdx = i;
                 }
             }
-        }
 
-        function finalizeSwing() {
-            swingCounter++;
-            document.getElementById('swingCount').innerText = swingCounter;
-            swingResults.push({
-                id: swingCounter,
-                points: { ...currentSwingData },
-                result: { x: 'straight', y: 'center', curve: 'neutral' }
-            });
-            updateSwingSelector();
+            // 3. Draw the Ghost Overlay
+            const bestGhost = proFramesData[bestMatchIdx].ghost;
+            
+            // Note: We mirror the ghost mask so it matches your mirrored webcam feed
+            canvasCtx.save();
+            canvasCtx.scale(-1, 1);
+            canvasCtx.translate(-canvasElement.width, 0);
+            canvasCtx.drawImage(bestGhost, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.restore();
         }
+    }
 
-        function updateSwingSelector() {
-            const sel = document.getElementById('swingSelector');
-            sel.innerHTML = swingResults.map(s => `<option value="${s.id}">Swing ${s.id}</option>`).join('');
-        }
+    // --- Video Upload & Processing Pipeline ---
+    videoUpload.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
-        function toggleResultPanel() {
-            const p = document.getElementById('resultPanel');
-            p.style.display = (p.style.display === 'block') ? 'none' : 'block';
-        }
-
-        function saveSwingResult() {
-            const id = parseInt(document.getElementById('swingSelector').value);
-            const swing = swingResults.find(s => s.id === id);
-            if(swing) {
-                swing.result.x = document.getElementById('resX').value;
-                swing.result.y = document.getElementById('resY').value;
-                swing.result.curve = document.getElementById('resCurve').value;
-                alert(`Swing ${id} saved!`);
-            }
-        }
-
-        function loadExistingResult() {
-            const id = parseInt(document.getElementById('swingSelector').value);
-            const swing = swingResults.find(s => s.id === id);
-            if(swing) {
-                document.getElementById('resX').value = swing.result.x;
-                document.getElementById('resY').value = swing.result.y;
-                document.getElementById('resCurve').value = swing.result.curve;
-            }
-        }
-
-        function drawFilteredConnectors(context, landmarks) {
-            const connections = POSE_CONNECTIONS.filter(conn => !ignoredIDs.includes(conn[0]) && !ignoredIDs.includes(conn[1]));
-            drawConnectors(context, landmarks, connections, {color: '#FFFFFF', lineWidth: 2});
-        }
-
-        document.getElementById('liveBtn').onclick = startLive;
+        appState = 'PROCESSING_PRO';
+        proFramesData = []; // Clear old data
+        statusText.innerText = "Loading video...";
         
-        document.getElementById('videoInput').onchange = (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                isLive = false;
-                canvas.classList.remove('mirrored');
-                video.srcObject = null;
-                const url = URL.createObjectURL(file);
-                video.src = url;
-                video.load(); 
-                video.play().then(() => runAILoop()).catch(err => {
-                    console.log("Playback error, try clicking play manually.");
-                });
-            }
-        };
+        const url = URL.createObjectURL(file);
+        proVideo.src = url;
+        proVideo.load();
+    });
 
-        document.getElementById('playPauseBtn').onclick = () => { 
-            if(video.paused){ 
-                video.play().then(() => runAILoop()).catch(e => console.log("Manual play failed"));
-            } else { 
-                video.pause(); 
-            } 
-        };
-
-        function jumpFrames(n) { 
-            isLive = false;
-            video.pause(); 
-            video.currentTime += (n/30); 
-            video.onseeked = () => {
-                pose.send({image:video});
-                video.onseeked = null;
-            };
-        }
-
-        function setStage(s) { 
-            currentTrainingStage = s; 
-            document.getElementById('capLabel').innerText = s.toUpperCase(); 
-            document.querySelectorAll('.hud-card').forEach(c => c.classList.remove('active-tab')); 
-            document.getElementById(`hud-${s}`).classList.add('active-tab'); 
-        }
-
-        document.getElementById('trainBtn').onclick = () => { if (lastVec) dataset[currentTrainingStage].push([...lastVec]); };
-        document.getElementById('undoBtn').onclick = () => { if (dataset[currentTrainingStage].length > 0) dataset[currentTrainingStage].pop(); };
+    proVideo.addEventListener('loadeddata', async () => {
+        statusText.innerText = "Starting analysis...";
+        proVideo.play();
         
-        document.getElementById('saveBtn').onclick = () => {
-            const fullData = { poseDataset: dataset, swingResults: swingResults };
-            const blob = new Blob([JSON.stringify(fullData)], {type: 'application/json'});
-            const a = document.createElement('a'); 
-            a.href = URL.createObjectURL(blob); 
-            a.download = `golf_master_data.json`; 
-            a.click();
-        };
-
-        document.getElementById('loadInput').onchange = (e) => {
-            const reader = new FileReader();
-            reader.onload = (ev) => { 
-                const imported = JSON.parse(ev.target.result);
-                if(imported.poseDataset) {
-                    dataset = imported.poseDataset;
-                    swingResults = imported.swingResults || [];
-                    swingCounter = swingResults.length;
-                    document.getElementById('swingCount').innerText = swingCounter;
-                    updateSwingSelector();
-                    alert("Master Data Loaded!"); 
-                } else {
-                    dataset = imported;
-                    alert("Legacy Pose Data Loaded!");
-                }
-            };
-            reader.readAsText(e.target.files[0]);
-        };
-
-        function resetSwingCount() { 
-            swingCounter = 0; swingResults = [];
-            activeSwingIdx = -1;
-            document.getElementById('swingCount').innerText = 0; 
-            updateSwingSelector();
+        // Loop to send frames to MediaPipe while the video plays
+        async function processVideoFrame() {
+            if (proVideo.paused || proVideo.ended) {
+                // Done processing!
+                statusText.innerText = "Pro Video Processed! Starting Webcam...";
+                appState = 'LIVE';
+                startWebcam();
+                return;
+            }
+            await pose.send({image: proVideo});
+            requestAnimationFrame(processVideoFrame);
         }
-        setStage('setup');
-    </script>
+        processVideoFrame();
+    });
+
+    // --- Live Webcam Pipeline ---
+    function startWebcam() {
+        const camera = new Camera(webcamVideo, {
+            onFrame: async () => {
+                if (appState === 'LIVE') {
+                    await pose.send({image: webcamVideo});
+                }
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
+        statusText.innerText = "Live! Step into the frame.";
+        statusText.style.color = "#00ff00";
+    }
+
+</script>
 </body>
 </html>
