@@ -1,675 +1,427 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AimPoint Green Reader</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Golf Pro - Ultimate Sequential Trainer</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0a0a0a; color: #eee; margin: 0; padding: 10px; overflow-x: hidden; }
+        .stats-bar { display: flex; justify-content: space-around; background: #111; padding: 12px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #333; }
+        .stat-value { font-size: 1.5em; font-weight: bold; color: #00d2ff; }
+        .stat-label { font-size: 0.7em; color: #888; text-transform: uppercase; }
+        
+        /* Highlight specific target state text */
+        #activeStateDisplay { color: #f1c40f; font-size: 1.2em; font-weight: bold; letter-spacing: 1px; }
 
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #0a0f0a;
-    color: #e8f0e8;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 16px;
-  }
+        .dual-hud { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; position: sticky; top: 0; z-index: 100; }
+        @media (min-width: 600px) { .dual-hud { grid-template-columns: repeat(6, 1fr); } }
+        .hud-card { background: #222; padding: 8px; border-radius: 10px; border: 2px solid #444; opacity: 0.4; transition: 0.3s; font-size: 0.8em; }
+        .hud-card.active-tab { border-color: #0984e3; background: #1a2a3a; opacity: 1; }
+        
+        /* HUD State Tracking */
+        .hud-card.highest { border-color: #2ecc71 !important; background: #1b4d2e !important; box-shadow: 0 0 10px rgba(46, 204, 113, 0.4); opacity: 1; }
+        .hud-card.target-tab { border-color: #f1c40f !important; background: #3d3305 !important; box-shadow: 0 0 15px rgba(241, 196, 15, 0.6); opacity: 1; animation: pulse 1.5s infinite; }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 5px rgba(241, 196, 15, 0.4); }
+            50% { box-shadow: 0 0 20px rgba(241, 196, 15, 0.8); }
+            100% { box-shadow: 0 0 5px rgba(241, 196, 15, 0.4); }
+        }
 
-  h1 {
-    font-size: 20px;
-    font-weight: 600;
-    color: #7dce82;
-    letter-spacing: 0.5px;
-    margin-bottom: 4px;
-  }
-
-  .subtitle {
-    font-size: 13px;
-    color: #6a8a6a;
-    margin-bottom: 16px;
-  }
-
-  .container {
-    width: 100%;
-    max-width: 680px;
-  }
-
-  .camera-wrapper {
-    position: relative;
-    width: 100%;
-    background: #111;
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1.5px solid #2a3d2a;
-    aspect-ratio: 4/3;
-    touch-action: none;
-  }
-
-  #videoEl {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-
-  #overlayCanvas {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    cursor: crosshair;
-  }
-
-  .controls {
-    display: flex;
-    gap: 8px;
-    margin-top: 12px;
-    flex-wrap: wrap;
-  }
-
-  .btn {
-    flex: 1;
-    min-width: 100px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    border: 1.5px solid #2d4d2d;
-    background: #141f14;
-    color: #c8e8c8;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-
-  .btn:hover { background: #1e301e; border-color: #4a7a4a; }
-  .btn:active { transform: scale(0.97); }
-  .btn.active { background: #1a3d1a; border-color: #7dce82; color: #7dce82; }
-  .btn.danger { border-color: #8b3030; color: #e87878; }
-  .btn.danger:hover { background: #2a1010; border-color: #c45050; }
-
-  .mode-row {
-    display: flex;
-    gap: 8px;
-    margin-top: 10px;
-  }
-
-  .mode-btn {
-    flex: 1;
-    padding: 9px 12px;
-    border-radius: 8px;
-    border: 1.5px solid #222;
-    background: #111;
-    color: #7a9a7a;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    transition: all 0.15s;
-  }
-
-  .mode-btn.selected-ball { background: #102a30; border-color: #40b4e0; color: #40b4e0; }
-  .mode-btn.selected-hole { background: #2a1a10; border-color: #e07040; color: #e07040; }
-  .mode-btn:hover { border-color: #4a6a4a; }
-
-  .result-card {
-    margin-top: 14px;
-    background: #0e1e0e;
-    border: 1.5px solid #2a4a2a;
-    border-radius: 12px;
-    padding: 16px 20px;
-  }
-
-  .result-card h2 {
-    font-size: 14px;
-    color: #6a9a6a;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 12px;
-    font-weight: 600;
-  }
-
-  .aim-display {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 14px;
-  }
-
-  .aim-stat {
-    flex: 1;
-    background: #111d11;
-    border: 1px solid #2a3d2a;
-    border-radius: 8px;
-    padding: 12px;
-    text-align: center;
-  }
-
-  .aim-stat .label {
-    font-size: 11px;
-    color: #5a7a5a;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    margin-bottom: 6px;
-  }
-
-  .aim-stat .value {
-    font-size: 22px;
-    font-weight: 700;
-    color: #7dce82;
-    line-height: 1;
-  }
-
-  .aim-stat .unit {
-    font-size: 11px;
-    color: #5a7a5a;
-    margin-top: 4px;
-  }
-
-  .aim-direction {
-    font-size: 13px;
-    color: #b0d0b0;
-    text-align: center;
-    padding: 10px;
-    background: #0a150a;
-    border-radius: 8px;
-    border: 1px solid #1e321e;
-    line-height: 1.6;
-  }
-
-  .aim-direction strong {
-    color: #7dce82;
-    font-weight: 600;
-  }
-
-  .slope-bar-wrap {
-    margin-top: 12px;
-  }
-
-  .slope-label {
-    font-size: 12px;
-    color: #6a8a6a;
-    margin-bottom: 6px;
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .slope-bar {
-    height: 8px;
-    background: #1a2a1a;
-    border-radius: 4px;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .slope-fill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.4s ease, background 0.4s;
-  }
-
-  .status-row {
-    display: flex;
-    gap: 8px;
-    margin-top: 10px;
-    flex-wrap: wrap;
-  }
-
-  .status-pill {
-    font-size: 12px;
-    padding: 4px 10px;
-    border-radius: 20px;
-    border: 1px solid #2a3d2a;
-    color: #6a8a6a;
-    background: #0e180e;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .status-pill .dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: #3a5a3a;
-  }
-
-  .status-pill.set .dot { background: #7dce82; }
-  .status-pill.set { color: #a0d0a0; border-color: #3a5a3a; }
-
-  .instructions {
-    font-size: 12px;
-    color: #4a6a4a;
-    text-align: center;
-    margin-top: 10px;
-    line-height: 1.6;
-  }
-
-  .snap-hint {
-    font-size: 11px;
-    color: #3d5c3d;
-    margin-top: 6px;
-    text-align: center;
-  }
-
-  #startBtn { font-size: 14px; font-weight: 600; }
-</style>
+        .score-val { font-size: 1.1em; font-weight: bold; }
+        
+        .result-panel { background: #1a1a1a; padding: 15px; border-radius: 12px; margin-top: 10px; border: 1px solid #00d2ff; display: none; }
+        .selector-group { margin: 10px 0; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; align-items: center; }
+        select { padding: 8px; border-radius: 5px; background: #333; color: white; border: 1px solid #555; }
+        
+        .controls { background: #1e1e1e; padding: 12px; border-radius: 12px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px; border: 1px solid #333; }
+        .row { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; width: 100%; align-items: center; }
+        .container { position: relative; display: inline-block; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid #444; width: 100%; max-width: 800px; }
+        video { display: none; }
+        canvas { width: 100%; height: auto; display: block; }
+        .mirrored { transform: scaleX(-1); }
+        button { padding: 8px 10px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; background: #444; color: white; font-size: 0.9em; transition: 0.2s; }
+        button:hover { filter: brightness(1.2); }
+        .btn-live { background: #0984e3; }
+        .btn-train { background: #d63031; }
+        .btn-save { background: #27ae60; }
+        .btn-jump { background: #34495e; min-width: 40px; }
+        .btn-load { background: #8e44ad; position: relative; overflow: hidden; }
+        .btn-load input { position: absolute; opacity: 0; right: 0; top: 0; cursor: pointer; width: 100%; height: 100%; }
+        .btn-result { background: #f39c12; color: black; }
+        
+        .slider-container { display: flex; align-items: center; gap: 10px; background: #222; padding: 8px 15px; border-radius: 8px; border: 1px solid #444; }
+        input[type=range] { flex-grow: 1; cursor: pointer; }
+    </style>
 </head>
 <body>
 
-<div class="container">
-  <h1>⛳ AimPoint Green Reader</h1>
-  <p class="subtitle">Point at the green, mark ball &amp; hole, read your aim</p>
-
-  <div class="camera-wrapper" id="cameraWrapper">
-    <video id="videoEl" autoplay playsinline muted></video>
-    <canvas id="overlayCanvas"></canvas>
-  </div>
-
-  <div class="controls">
-    <button class="btn" id="startBtn" onclick="startCamera()">📷 Start Camera</button>
-    <button class="btn" id="snapBtn" onclick="snapFrame()" style="display:none">📸 Freeze Frame</button>
-    <button class="btn" id="liveBtn" onclick="goLive()" style="display:none">▶ Go Live</button>
-    <button class="btn danger" id="resetBtn" onclick="resetAll()" style="display:none">↺ Reset</button>
-  </div>
-
-  <div class="mode-row" id="modeRow" style="display:none">
-    <button class="mode-btn" id="modeBall" onclick="setMode('ball')">🟡 Set Ball</button>
-    <button class="mode-btn" id="modeHole" onclick="setMode('hole')">⚫ Set Hole</button>
-  </div>
-
-  <div class="status-row" id="statusRow" style="display:none">
-    <div class="status-pill" id="pillBall"><span class="dot"></span>Ball: not set</div>
-    <div class="status-pill" id="pillHole"><span class="dot"></span>Hole: not set</div>
-    <div class="status-pill" id="pillDist"><span class="dot"></span>Distance: —</div>
-  </div>
-
-  <p class="snap-hint" id="snapHint" style="display:none">Tip: Freeze the frame first for precise marking</p>
-
-  <div class="result-card" id="resultCard" style="display:none">
-    <h2>AimPoint Result</h2>
-    <div class="aim-display">
-      <div class="aim-stat">
-        <div class="label">Aim offset</div>
-        <div class="value" id="resInches">—</div>
-        <div class="unit" id="resDirection">inches L/R</div>
-      </div>
-      <div class="aim-stat">
-        <div class="label">Forward/back</div>
-        <div class="value" id="resYards">—</div>
-        <div class="unit">yards</div>
-      </div>
-      <div class="aim-stat">
-        <div class="label">Slope grade</div>
-        <div class="value" id="resSlope">—</div>
-        <div class="unit">%</div>
-      </div>
+    <div class="stats-bar">
+        <div class="stat-item">
+            <div class="stat-label">Swings Completed</div>
+            <div class="stat-value" id="swingCount">0</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-label">System Status / Target</div>
+            <div class="stat-value" id="activeStateDisplay">AWAITING SETUP</div>
+        </div>
     </div>
-    <div class="aim-direction" id="aimDirection"></div>
-    <div class="slope-bar-wrap">
-      <div class="slope-label"><span>Left</span><span id="slopeCaption">Slope direction</span><span>Right</span></div>
-      <div class="slope-bar"><div class="slope-fill" id="slopeFill" style="width:50%;background:#7dce82;margin-left:0"></div></div>
+
+    <div class="dual-hud">
+        <div id="hud-setup" class="hud-card" onclick="setStage('setup')">SETUP<div class="score-val" id="val-setup">0%</div></div>
+        <div id="hud-backswing" class="hud-card" onclick="setStage('backswing')">BACKSWING<div class="score-val" id="val-backswing">0%</div></div>
+        <div id="hud-top" class="hud-card" onclick="setStage('top')">TOP<div class="score-val" id="val-top">0%</div></div>
+        <div id="hud-downswing" class="hud-card" onclick="setStage('downswing')">DOWNSWING<div class="score-val" id="val-downswing">0%</div></div>
+        <div id="hud-contact" class="hud-card" onclick="setStage('contact')">CONTACT<div class="score-val" id="val-contact">0%</div></div>
+        <div id="hud-follow" class="hud-card" onclick="setStage('follow')">FOLLOW<div class="score-val" id="val-follow">0%</div></div>
     </div>
-  </div>
+    
+    <div class="controls">
+        <div class="row slider-container">
+            <label for="strictnessSlider" style="font-size: 0.8em; color: #aaa; font-weight: bold;">STRICTNESS (MATCH REQUIREMENT): <span id="strictnessVal" style="color: #f1c40f;">65</span>%</label>
+            <input type="range" id="strictnessSlider" min="20" max="95" value="65" oninput="document.getElementById('strictnessVal').innerText = this.value;">
+        </div>
 
-  <p class="instructions" id="instructions">Tap "Start Camera" to begin. Point your device at the green.</p>
-</div>
+        <div class="row">
+            <button class="btn-live" id="liveBtn">GO LIVE</button>
+            <input type="file" id="videoInput" accept="video/*" style="width: 150px; color: transparent;">
+            <button id="playPauseBtn">Play/Pause</button>
+            <button class="btn-result" onclick="toggleResultPanel()">TRAIN RESULTS</button>
+        </div>
+        <div class="row">
+            <span style="color:#888; font-size: 0.8em; align-self: center;">SCRUB:</span>
+            <button class="btn-jump" onclick="jumpFrames(-16)">-16</button>
+            <button class="btn-jump" onclick="jumpFrames(-4)">-4</button>
+            <button class="btn-jump" onclick="jumpFrames(-1)">-1</button>
+            <button class="btn-jump" onclick="jumpFrames(1)">+1</button>
+            <button class="btn-jump" onclick="jumpFrames(4)">+4</button>
+            <button class="btn-jump" onclick="jumpFrames(16)">+16</button>
+        </div>
+        <div class="row">
+            <button class="btn-train" id="trainBtn">TRAIN <span id="capLabel">SETUP</span></button>
+            <button id="undoBtn" style="background:#e67e22">UNDO</button>
+            <button class="btn-save" id="saveBtn">SAVE</button>
+            <button class="btn-load">LOAD<input type="file" id="loadInput" accept=".json"></button>
+            <button onclick="resetSwingCount()" style="background:#333">CLR</button>
+        </div>
+    </div>
 
-<script>
-const video = document.getElementById('videoEl');
-const canvas = document.getElementById('overlayCanvas');
-const ctx = canvas.getContext('2d');
+    <div id="resultPanel" class="result-panel">
+        <h3 style="margin-top:0">Swing Result Training</h3>
+        <div class="selector-group">
+            <label>Select Swing #: </label>
+            <select id="swingSelector" onchange="loadExistingResult()"></select>
+        </div>
+        <div class="selector-group">
+            <select id="resX"><option value="straight">Straight</option><option value="pulled">Pulled</option><option value="pushed">Pushed</option></select>
+            <select id="resY"><option value="center">Center</option><option value="skulled">Skulled</option><option value="popped">Popped</option></select>
+            <select id="resCurve"><option value="neutral">Neutral</option><option value="hooked">Hooked</option><option value="sliced">Sliced</option></select>
+            <button class="btn-save" onclick="saveSwingResult()">APPLY TO SWING</button>
+        </div>
+    </div>
 
-let stream = null;
-let frozen = false;
-let frozenImageData = null;
-let mode = 'ball';
-let ball = null;
-let hole = null;
-let analyzing = false;
-let animFrame = null;
+    <div class="container">
+        <video id="inputVideo" crossorigin="anonymous" playsinline muted></video>
+        <canvas id="outputCanvas"></canvas>
+    </div>
 
-const AVG_PUTT_DISTANCE_YARDS = 15;
-const SLOPE_SENSITIVITY = 0.018;
+    <script>
+        const video = document.getElementById('inputVideo');
+        const canvas = document.getElementById('outputCanvas');
+        const ctx = canvas.getContext('2d');
+        const stages = ['setup', 'backswing', 'top', 'downswing', 'contact', 'follow'];
+        let currentTrainingStage = 'setup', dataset = {}, activeSwingIdx = -1, swingCounter = 0;
+        let lastVec = null, setupStartTime = null, isLive = false;
+        
+        let swingResults = []; 
+        let currentSwingData = { downswing: null, contact: null, follow: null };
+        let peaks = { downswing: 0, contact: 0, follow: 0 };
 
-function startCamera() {
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } } })
-    .then(s => {
-      stream = s;
-      video.srcObject = s;
-      video.play();
-      document.getElementById('startBtn').style.display = 'none';
-      document.getElementById('snapBtn').style.display = '';
-      document.getElementById('resetBtn').style.display = '';
-      document.getElementById('modeRow').style.display = '';
-      document.getElementById('statusRow').style.display = '';
-      document.getElementById('snapHint').style.display = '';
-      document.getElementById('instructions').textContent = 'Tap "Set Ball" then tap on the ball in the image. Then tap "Set Hole" and tap the hole.';
-      setMode('ball');
-      video.addEventListener('loadedmetadata', resizeCanvas);
-      resizeCanvas();
-      drawLoop();
-    })
-    .catch(e => {
-      alert('Camera access denied or unavailable. Please allow camera permissions and try again.\n\n' + e.message);
-    });
-}
+        stages.forEach(s => dataset[s] = []);
 
-function resizeCanvas() {
-  const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width;
-  canvas.height = rect.height;
-}
+        const trackedIDs = [11, 12, 14, 16, 18, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
+        const ignoredIDs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 15, 17, 19, 21];
 
-window.addEventListener('resize', resizeCanvas);
+        const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
+        pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
-function drawLoop() {
-  if (!frozen) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawMarkers();
-  }
-  animFrame = requestAnimationFrame(drawLoop);
-}
+        pose.onResults((results) => {
+            canvas.width = video.videoWidth || 640; 
+            canvas.height = video.videoHeight || 480;
+            ctx.save();
+            if(isLive) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            if (results.poseLandmarks) {
+                const filtered = results.poseLandmarks.map((lm, idx) => ignoredIDs.includes(idx) ? {x:0,y:0,z:0,visibility:0} : lm);
+                lastVec = normalizePose(filtered);
+                drawFilteredConnectors(ctx, filtered);
+                processSequentialLogic(lastVec);
+            }
+            ctx.restore();
+        });
 
-function snapFrame() {
-  if (!stream) return;
-  frozen = true;
-  const offscreen = document.createElement('canvas');
-  offscreen.width = canvas.width;
-  offscreen.height = canvas.height;
-  const oc = offscreen.getContext('2d');
-  oc.drawImage(video, 0, 0, canvas.width, canvas.height);
-  frozenImageData = oc.getImageData(0, 0, canvas.width, canvas.height);
-  ctx.putImageData(frozenImageData, 0, 0);
-  drawMarkers();
-  document.getElementById('snapBtn').style.display = 'none';
-  document.getElementById('liveBtn').style.display = '';
-  document.getElementById('instructions').textContent = 'Frame frozen. Tap "Set Ball" mode then tap the ball position. Then "Set Hole".';
-}
+        async function startLive() {
+            try {
+                video.pause(); video.src = ""; video.srcObject = null;
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } 
+                });
+                video.srcObject = stream;
+                isLive = true;
+                canvas.classList.add('mirrored');
+                video.play().catch(e => console.log("Live Start Interrupted"));
+                runAILoop();
+            } catch (err) { alert("Camera Error: Check permissions."); }
+        }
 
-function goLive() {
-  frozen = false;
-  frozenImageData = null;
-  document.getElementById('liveBtn').style.display = 'none';
-  document.getElementById('snapBtn').style.display = '';
-}
+        async function runAILoop() {
+            if (!video.paused || isLive) {
+                if (video.readyState >= 2) {
+                    await pose.send({image: video});
+                }
+                requestAnimationFrame(runAILoop);
+            }
+        }
 
-function setMode(m) {
-  mode = m;
-  document.getElementById('modeBall').className = 'mode-btn' + (m === 'ball' ? ' selected-ball' : '');
-  document.getElementById('modeHole').className = 'mode-btn' + (m === 'hole' ? ' selected-hole' : '');
-}
+        function normalizePose(landmarks) {
+            const rHip = landmarks[24], rSho = landmarks[12];
+            const scale = Math.sqrt(Math.pow(rHip.x - rSho.x, 2) + Math.pow(rHip.y - rSho.y, 2)) || 1;
+            let vector = [];
+            trackedIDs.forEach(id => {
+                vector.push((landmarks[id].x - rHip.x) / scale);
+                vector.push((landmarks[id].y - rHip.y) / scale);
+            });
+            return vector;
+        }
 
-canvas.addEventListener('click', handleTap);
-canvas.addEventListener('touchend', e => {
-  e.preventDefault();
-  const touch = e.changedTouches[0];
-  const rect = canvas.getBoundingClientRect();
-  handleTapAt(touch.clientX - rect.left, touch.clientY - rect.top);
-}, { passive: false });
+        function processSequentialLogic(vec) {
+            const probs = {};
+            let maxVal = -1, currentLeader = '';
+            let hasData = false;
+            
+            // Step 1: Calculate similarity scores based on training data
+            stages.forEach(label => {
+                if (dataset[label].length === 0) { probs[label] = 0; return; }
+                hasData = true;
+                let sim = 0;
+                dataset[label].forEach(s => {
+                    let d = 0;
+                    for (let i = 0; i < vec.length; i++) d += Math.pow(vec[i] - s[i], 2);
+                    sim += 1 / (Math.sqrt(d) + 0.1);
+                });
+                probs[label] = sim / dataset[label].length;
+            });
 
-function handleTap(e) {
-  const rect = canvas.getBoundingClientRect();
-  handleTapAt(e.clientX - rect.left, e.clientY - rect.top);
-}
+            if(!hasData) return; // Prevent logic if nothing is trained yet
 
-function handleTapAt(x, y) {
-  if (!stream) return;
-  const nx = x / canvas.width;
-  const ny = y / canvas.height;
-  if (mode === 'ball') {
-    ball = { x: nx, y: ny };
-    updatePill('pillBall', 'Ball: set ✓', true);
-  } else {
-    hole = { x: nx, y: ny };
-    updatePill('pillHole', 'Hole: set ✓', true);
-  }
-  if (ball && hole) {
-    const dist = estimateYards(ball, hole);
-    updatePill('pillDist', `~${dist.toFixed(1)} yds`, true);
-    analyze();
-  }
-  if (frozen) {
-    ctx.putImageData(frozenImageData, 0, 0);
-  }
-  drawMarkers();
-}
+            const sum = stages.reduce((a, b) => a + probs[b], 0) || 1;
+            stages.forEach(l => {
+                probs[l] = (probs[l] / sum) * 100; // Convert to percentage
+                if (probs[l] > maxVal && dataset[l].length > 0) { maxVal = probs[l]; currentLeader = l; }
+                document.getElementById(`val-${l}`).innerText = dataset[l].length > 0 ? `${probs[l].toFixed(0)}%` : "0%";
+            });
 
-function updatePill(id, text, isSet) {
-  const el = document.getElementById(id);
-  el.className = 'status-pill' + (isSet ? ' set' : '');
-  el.innerHTML = `<span class="dot"></span>${text}`;
-}
+            // Step 2: Strict Sequential Gateway Logic
+            let strictness = parseInt(document.getElementById('strictnessSlider').value);
+            const displayHUD = document.getElementById('activeStateDisplay');
 
-function estimateYards(b, h) {
-  const dx = (h.x - b.x);
-  const dy = (h.y - b.y);
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  return dist * 60;
-}
+            // Reset HUD colors first
+            stages.forEach(l => {
+                const card = document.getElementById(`hud-${l}`);
+                if (card) card.classList.remove('highest', 'target-tab');
+            });
 
-function drawMarkers() {
-  if (ball) drawPin(ball.x * canvas.width, ball.y * canvas.height, '#40b4e0', '⬤', 'BALL');
-  if (hole) drawPin(hole.x * canvas.width, hole.y * canvas.height, '#e07040', '⊙', 'HOLE');
-  if (ball && hole) drawLine();
-}
+            // State -1: Awaiting Setup Start
+            if (activeSwingIdx === -1) {
+                document.getElementById('hud-setup').classList.add('target-tab');
+                displayHUD.innerText = "TARGET: SETUP";
+                displayHUD.style.color = "#f1c40f";
 
-function drawPin(x, y, color, sym, label) {
-  ctx.save();
-  ctx.shadowBlur = 12;
-  ctx.shadowColor = color;
-  ctx.fillStyle = color;
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(x, y, 14, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+                if (probs['setup'] >= strictness) {
+                    if (!setupStartTime) setupStartTime = Date.now();
+                    let elapsed = Date.now() - setupStartTime;
+                    
+                    displayHUD.innerText = `HOLD SETUP ${(1.0 - elapsed/1000).toFixed(1)}s`;
+                    displayHUD.style.color = "#00d2ff";
 
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 11px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(sym === '⬤' ? 'B' : 'H', x, y);
+                    if (elapsed >= 1000) { 
+                        activeSwingIdx = 0; // Move to State 0 (Setup Achieved, targeting Backswing)
+                        setupStartTime = null; 
+                        peaks = { downswing: 0, contact: 0, follow: 0 };
+                        currentSwingData = { downswing: null, contact: null, follow: null };
+                    }
+                } else { 
+                    setupStartTime = null; 
+                }
+            } 
+            // State 0 to 4: Mid-Swing (Strict Progression)
+            else if (activeSwingIdx < 5) {
+                const currentStageName = stages[activeSwingIdx];
+                const nextStageName = stages[activeSwingIdx + 1];
 
-  ctx.fillStyle = color;
-  ctx.fillRect(x - 28, y - 32, 56, 18);
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 10px sans-serif';
-  ctx.fillText(label, x, y - 23);
-  ctx.restore();
-}
+                // Mark current stage green (completed), target stage yellow (pulsing)
+                document.getElementById(`hud-${currentStageName}`).classList.add('highest');
+                document.getElementById(`hud-${nextStageName}`).classList.add('target-tab');
+                
+                displayHUD.innerText = `TARGET: ${nextStageName.toUpperCase()}`;
+                displayHUD.style.color = "#f1c40f";
 
-function drawLine() {
-  const bx = ball.x * canvas.width, by = ball.y * canvas.height;
-  const hx = hole.x * canvas.width, hy = hole.y * canvas.height;
-  ctx.save();
-  ctx.setLineDash([6, 5]);
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(bx, by);
-  ctx.lineTo(hx, hy);
-  ctx.stroke();
-  ctx.restore();
-}
+                // Track peaks for later results analysis if we are in the later half of the swing
+                if (activeSwingIdx >= 3) {
+                    if(probs[currentStageName] > peaks[currentStageName]) {
+                        peaks[currentStageName] = probs[currentStageName];
+                        currentSwingData[currentStageName] = [...vec];
+                    }
+                }
 
-function analyze() {
-  if (!ball || !hole || analyzing) return;
-  if (!stream) return;
+                // **THE GATEWAY:** Do not progress until the strictness requirement is met!
+                if (probs[nextStageName] >= strictness) {
+                    activeSwingIdx++; 
+                }
+            } 
+            // State 5: Follow Through Achieved
+            else if (activeSwingIdx === 5) {
+                document.getElementById('hud-follow').classList.add('highest');
+                displayHUD.innerText = "SWING COMPLETE!";
+                displayHUD.style.color = "#2ecc71";
 
-  document.getElementById('resultCard').style.display = 'none';
-  analyzing = true;
+                // Finalize and reset when they drop their pose
+                if (probs.follow < strictness - 15 || probs.setup >= strictness) { 
+                    finalizeSwing();
+                    activeSwingIdx = -1; 
+                }
+            }
+        }
 
-  const slopeData = computeSlopeFromImage();
-  const dist = estimateYards(ball, hole);
-  const crossSlope = slopeData.crossSlope;
-  const puttSlope = slopeData.puttSlope;
+        function finalizeSwing() {
+            swingCounter++;
+            document.getElementById('swingCount').innerText = swingCounter;
+            swingResults.push({
+                id: swingCounter,
+                points: { ...currentSwingData },
+                result: { x: 'straight', y: 'center', curve: 'neutral' }
+            });
+            updateSwingSelector();
+        }
 
-  const breakInches = Math.round(crossSlope * dist * 52 * SLOPE_SENSITIVITY * 100) / 10;
-  const breakDirection = crossSlope > 0.02 ? 'right' : crossSlope < -0.02 ? 'left' : 'straight';
-  const forwardAdj = parseFloat((puttSlope * dist * 0.15).toFixed(1));
-  const slopePct = parseFloat((Math.sqrt(crossSlope * crossSlope + puttSlope * puttSlope) * 100).toFixed(1));
+        function updateSwingSelector() {
+            const sel = document.getElementById('swingSelector');
+            sel.innerHTML = swingResults.map(s => `<option value="${s.id}">Swing ${s.id}</option>`).join('');
+        }
 
-  const absBreak = Math.abs(breakInches);
-  document.getElementById('resInches').textContent = absBreak.toFixed(1);
-  document.getElementById('resSlope').textContent = slopePct;
+        function toggleResultPanel() {
+            const p = document.getElementById('resultPanel');
+            p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+        }
 
-  const adjLabel = forwardAdj >= 0 ? `+${forwardAdj}` : `${forwardAdj}`;
-  document.getElementById('resYards').textContent = adjLabel;
+        function saveSwingResult() {
+            const id = parseInt(document.getElementById('swingSelector').value);
+            const swing = swingResults.find(s => s.id === id);
+            if(swing) {
+                swing.result.x = document.getElementById('resX').value;
+                swing.result.y = document.getElementById('resY').value;
+                swing.result.curve = document.getElementById('resCurve').value;
+                alert(`Swing ${id} saved!`);
+            }
+        }
 
-  let dirText = '';
-  if (breakDirection === 'straight') {
-    dirText = '<strong>Straight putt</strong> — aim directly at the center of the hole.';
-    document.getElementById('resDirection').textContent = 'inches (straight)';
-  } else {
-    document.getElementById('resDirection').textContent = `inches ${breakDirection === 'right' ? '→ right' : '← left'}`;
-    const sideWord = breakDirection === 'right' ? 'right' : 'left';
-    dirText = `Aim <strong>${absBreak.toFixed(1)} inches ${sideWord} of center</strong>. `;
-    if (forwardAdj > 0.3) dirText += `The uphill slope adds distance — hit about <strong>${forwardAdj} yard${forwardAdj !== 1 ? 's' : ''} firmer</strong>.`;
-    else if (forwardAdj < -0.3) dirText += `The downhill slope reduces speed — aim about <strong>${Math.abs(forwardAdj)} yard${Math.abs(forwardAdj) !== 1 ? 's' : ''} shorter</strong>.`;
-    else dirText += 'The slope is mostly flat — normal pace.';
-  }
+        function loadExistingResult() {
+            const id = parseInt(document.getElementById('swingSelector').value);
+            const swing = swingResults.find(s => s.id === id);
+            if(swing) {
+                document.getElementById('resX').value = swing.result.x;
+                document.getElementById('resY').value = swing.result.y;
+                document.getElementById('resCurve').value = swing.result.curve;
+            }
+        }
 
-  document.getElementById('aimDirection').innerHTML = dirText;
+        function drawFilteredConnectors(context, landmarks) {
+            const connections = POSE_CONNECTIONS.filter(conn => !ignoredIDs.includes(conn[0]) && !ignoredIDs.includes(conn[1]));
+            drawConnectors(context, landmarks, connections, {color: '#FFFFFF', lineWidth: 2});
+        }
 
-  const slopeBarFill = document.getElementById('slopeFill');
-  const slopeCaption = document.getElementById('slopeCaption');
-  if (Math.abs(crossSlope) < 0.01) {
-    slopeBarFill.style.width = '50%';
-    slopeBarFill.style.marginLeft = '0';
-    slopeBarFill.style.background = '#7dce82';
-    slopeCaption.textContent = 'Flat';
-  } else if (crossSlope > 0) {
-    const pct = Math.min(crossSlope * 300, 48);
-    slopeBarFill.style.width = `${pct}%`;
-    slopeBarFill.style.marginLeft = `${50}%`;
-    slopeBarFill.style.background = '#e07040';
-    slopeCaption.textContent = `Breaking right (${slopePct}%)`;
-  } else {
-    const pct = Math.min(Math.abs(crossSlope) * 300, 48);
-    slopeBarFill.style.width = `${pct}%`;
-    slopeBarFill.style.marginLeft = `${50 - pct}%`;
-    slopeBarFill.style.background = '#40b4e0';
-    slopeCaption.textContent = `Breaking left (${slopePct}%)`;
-  }
+        document.getElementById('liveBtn').onclick = startLive;
+        
+        document.getElementById('videoInput').onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                isLive = false;
+                canvas.classList.remove('mirrored');
+                video.srcObject = null;
+                const url = URL.createObjectURL(file);
+                video.src = url;
+                video.load(); 
+                video.play().then(() => runAILoop()).catch(err => {
+                    console.log("Playback error, try clicking play manually.");
+                });
+            }
+        };
 
-  document.getElementById('resultCard').style.display = '';
-  analyzing = false;
-}
+        document.getElementById('playPauseBtn').onclick = () => { 
+            if(video.paused){ 
+                video.play().then(() => runAILoop()).catch(e => console.log("Manual play failed"));
+            } else { 
+                video.pause(); 
+            } 
+        };
 
-function computeSlopeFromImage() {
-  if (!ball || !hole) return { crossSlope: 0, puttSlope: 0 };
+        function jumpFrames(n) { 
+            isLive = false;
+            video.pause(); 
+            video.currentTime += (n/30); 
+            video.onseeked = () => {
+                pose.send({image:video});
+                video.onseeked = null;
+            };
+        }
 
-  const tempCanvas = document.createElement('canvas');
-  const tw = 200, th = 150;
-  tempCanvas.width = tw;
-  tempCanvas.height = th;
-  const tc = tempCanvas.getContext('2d');
+        function setStage(s) { 
+            currentTrainingStage = s; 
+            document.getElementById('capLabel').innerText = s.toUpperCase(); 
+            document.querySelectorAll('.hud-card').forEach(c => c.classList.remove('active-tab')); 
+            document.getElementById(`hud-${s}`).classList.add('active-tab'); 
+        }
 
-  if (frozen && frozenImageData) {
-    const scaleX = frozenImageData.width / canvas.width;
-    const scaleY = frozenImageData.height / canvas.height;
-    const src = document.createElement('canvas');
-    src.width = canvas.width;
-    src.height = canvas.height;
-    src.getContext('2d').putImageData(frozenImageData, 0, 0);
-    tc.drawImage(src, 0, 0, tw, th);
-  } else {
-    tc.drawImage(video, 0, 0, tw, th);
-  }
+        document.getElementById('trainBtn').onclick = () => { if (lastVec) dataset[currentTrainingStage].push([...lastVec]); };
+        document.getElementById('undoBtn').onclick = () => { if (dataset[currentTrainingStage].length > 0) dataset[currentTrainingStage].pop(); };
+        
+        document.getElementById('saveBtn').onclick = () => {
+            const fullData = { poseDataset: dataset, swingResults: swingResults };
+            const blob = new Blob([JSON.stringify(fullData)], {type: 'application/json'});
+            const a = document.createElement('a'); 
+            a.href = URL.createObjectURL(blob); 
+            a.download = `golf_master_data.json`; 
+            a.click();
+        };
 
-  const bx = Math.floor(ball.x * tw);
-  const by = Math.floor(ball.y * th);
-  const hx = Math.floor(hole.x * tw);
-  const hy = Math.floor(hole.y * th);
+        document.getElementById('loadInput').onchange = (e) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => { 
+                const imported = JSON.parse(ev.target.result);
+                if(imported.poseDataset) {
+                    dataset = imported.poseDataset;
+                    swingResults = imported.swingResults || [];
+                    swingCounter = swingResults.length;
+                    document.getElementById('swingCount').innerText = swingCounter;
+                    updateSwingSelector();
+                    alert("Master Data Loaded!"); 
+                } else {
+                    dataset = imported;
+                    alert("Legacy Pose Data Loaded!");
+                }
+            };
+            reader.readAsText(e.target.files[0]);
+        };
 
-  const dx = hx - bx;
-  const dy = hy - by;
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
-  const ux = dx / len;
-  const uy = dy / len;
-  const perpX = -uy;
-  const perpY = ux;
-
-  const samples = 12;
-  let leftBright = 0, rightBright = 0;
-  let n = 0;
-
-  for (let i = 1; i <= samples; i++) {
-    const t = i / (samples + 1);
-    const px = Math.floor(bx + dx * t);
-    const py = Math.floor(by + dy * t);
-    const offset = 8;
-    const lx = Math.floor(px - perpX * offset);
-    const ly = Math.floor(py - perpY * offset);
-    const rx = Math.floor(px + perpX * offset);
-    const ry = Math.floor(py + perpY * offset);
-
-    const lb = sampleBrightness(tc, lx, ly, tw, th);
-    const rb = sampleBrightness(tc, rx, ry, tw, th);
-    if (lb >= 0 && rb >= 0) {
-      leftBright += lb;
-      rightBright += rb;
-      n++;
-    }
-  }
-
-  if (n === 0) return { crossSlope: 0, puttSlope: 0 };
-
-  leftBright /= n;
-  rightBright /= n;
-
-  const diff = (rightBright - leftBright) / 255;
-
-  let ballBright = sampleBrightness(tc, bx, by, tw, th);
-  let holeBright = sampleBrightness(tc, hx, hy, tw, th);
-  ballBright = ballBright < 0 ? 128 : ballBright;
-  holeBright = holeBright < 0 ? 128 : holeBright;
-  const puttDiff = (holeBright - ballBright) / 255;
-
-  return {
-    crossSlope: diff * 1.4,
-    puttSlope: puttDiff * 0.8
-  };
-}
-
-function sampleBrightness(ctx2d, x, y, w, h) {
-  if (x < 0 || y < 0 || x >= w || y >= h) return -1;
-  const r = 3;
-  const x0 = Math.max(0, x - r), y0 = Math.max(0, y - r);
-  const x1 = Math.min(w - 1, x + r), y1 = Math.min(h - 1, y + r);
-  const data = ctx2d.getImageData(x0, y0, x1 - x0 + 1, y1 - y0 + 1).data;
-  let sum = 0;
-  let count = data.length / 4;
-  for (let i = 0; i < data.length; i += 4) {
-    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-  }
-  return sum / count;
-}
-
-function resetAll() {
-  ball = null;
-  hole = null;
-  frozen = false;
-  frozenImageData = null;
-  document.getElementById('resultCard').style.display = 'none';
-  document.getElementById('liveBtn').style.display = 'none';
-  document.getElementById('snapBtn').style.display = stream ? '' : 'none';
-  updatePill('pillBall', 'Ball: not set', false);
-  updatePill('pillHole', 'Hole: not set', false);
-  updatePill('pillDist', 'Distance: —', false);
-  setMode('ball');
-  document.getElementById('instructions').textContent = 'Markers cleared. Tap "Set Ball" to begin again.';
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-</script>
+        function resetSwingCount() { 
+            swingCounter = 0; swingResults = [];
+            activeSwingIdx = -1;
+            document.getElementById('swingCount').innerText = 0; 
+            updateSwingSelector();
+        }
+        setStage('setup');
+    </script>
 </body>
 </html>
