@@ -1,167 +1,675 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Player with Live Overlay</title>
-    <style>
-        /* Base Styling */
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            max-width: 800px;
-            margin: 2rem auto;
-            padding: 0 1rem;
-            background-color: #121212;
-            color: #ffffff;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AimPoint Green Reader</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        /* Control Panel */
-        .controls {
-            background: #1e1e1e;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            margin-bottom: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0f0a;
+    color: #e8f0e8;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+  }
 
-        .control-group {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #7dce82;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
 
-        .control-group label {
-            min-width: 140px;
-            font-weight: 600;
-        }
+  .subtitle {
+    font-size: 13px;
+    color: #6a8a6a;
+    margin-bottom: 16px;
+  }
 
-        input[type="range"] {
-            flex-grow: 1;
-            cursor: pointer;
-        }
+  .container {
+    width: 100%;
+    max-width: 680px;
+  }
 
-        .value-display {
-            min-width: 50px;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
-            color: #4CAF50;
-            font-weight: bold;
-        }
+  .camera-wrapper {
+    position: relative;
+    width: 100%;
+    background: #111;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1.5px solid #2a3d2a;
+    aspect-ratio: 4/3;
+    touch-action: none;
+  }
 
-        input[type="file"] {
-            color: #fff;
-        }
+  #videoEl {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
 
-        /* Video Container */
-        .video-wrapper {
-            position: relative;
-            width: 100%;
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        }
+  #overlayCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+  }
 
-        #mainVideo {
-            width: 100%;
-            display: block;
-        }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
 
-        #webcamVideo {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover; /* Stretches the webcam to fill the video box */
-            opacity: 0.5; /* Default see-through level */
-            z-index: 10;
-            /* CRITICAL: Allows your mouse clicks to pass through to the main video controls below */
-            pointer-events: none; 
-        }
-    </style>
+  .btn {
+    flex: 1;
+    min-width: 100px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1.5px solid #2d4d2d;
+    background: #141f14;
+    color: #c8e8c8;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .btn:hover { background: #1e301e; border-color: #4a7a4a; }
+  .btn:active { transform: scale(0.97); }
+  .btn.active { background: #1a3d1a; border-color: #7dce82; color: #7dce82; }
+  .btn.danger { border-color: #8b3030; color: #e87878; }
+  .btn.danger:hover { background: #2a1010; border-color: #c45050; }
+
+  .mode-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .mode-btn {
+    flex: 1;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1.5px solid #222;
+    background: #111;
+    color: #7a9a7a;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    transition: all 0.15s;
+  }
+
+  .mode-btn.selected-ball { background: #102a30; border-color: #40b4e0; color: #40b4e0; }
+  .mode-btn.selected-hole { background: #2a1a10; border-color: #e07040; color: #e07040; }
+  .mode-btn:hover { border-color: #4a6a4a; }
+
+  .result-card {
+    margin-top: 14px;
+    background: #0e1e0e;
+    border: 1.5px solid #2a4a2a;
+    border-radius: 12px;
+    padding: 16px 20px;
+  }
+
+  .result-card h2 {
+    font-size: 14px;
+    color: #6a9a6a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+
+  .aim-display {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .aim-stat {
+    flex: 1;
+    background: #111d11;
+    border: 1px solid #2a3d2a;
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+
+  .aim-stat .label {
+    font-size: 11px;
+    color: #5a7a5a;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 6px;
+  }
+
+  .aim-stat .value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #7dce82;
+    line-height: 1;
+  }
+
+  .aim-stat .unit {
+    font-size: 11px;
+    color: #5a7a5a;
+    margin-top: 4px;
+  }
+
+  .aim-direction {
+    font-size: 13px;
+    color: #b0d0b0;
+    text-align: center;
+    padding: 10px;
+    background: #0a150a;
+    border-radius: 8px;
+    border: 1px solid #1e321e;
+    line-height: 1.6;
+  }
+
+  .aim-direction strong {
+    color: #7dce82;
+    font-weight: 600;
+  }
+
+  .slope-bar-wrap {
+    margin-top: 12px;
+  }
+
+  .slope-label {
+    font-size: 12px;
+    color: #6a8a6a;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .slope-bar {
+    height: 8px;
+    background: #1a2a1a;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .slope-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.4s ease, background 0.4s;
+  }
+
+  .status-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+
+  .status-pill {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid #2a3d2a;
+    color: #6a8a6a;
+    background: #0e180e;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .status-pill .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #3a5a3a;
+  }
+
+  .status-pill.set .dot { background: #7dce82; }
+  .status-pill.set { color: #a0d0a0; border-color: #3a5a3a; }
+
+  .instructions {
+    font-size: 12px;
+    color: #4a6a4a;
+    text-align: center;
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+
+  .snap-hint {
+    font-size: 11px;
+    color: #3d5c3d;
+    margin-top: 6px;
+    text-align: center;
+  }
+
+  #startBtn { font-size: 14px; font-weight: 600; }
+</style>
 </head>
 <body>
 
-    <div class="controls">
-        <div class="control-group">
-            <label for="videoUpload">1. Select Video:</label>
-            <input type="file" id="videoUpload" accept="video/*">
-        </div>
+<div class="container">
+  <h1>⛳ AimPoint Green Reader</h1>
+  <p class="subtitle">Point at the green, mark ball &amp; hole, read your aim</p>
 
-        <div class="control-group">
-            <label for="speedSlider">2. Playback Speed:</label>
-            <input type="range" id="speedSlider" min="0.25" max="4" step="0.25" value="1">
-            <span class="value-display" id="speedValue">1.00x</span>
-        </div>
+  <div class="camera-wrapper" id="cameraWrapper">
+    <video id="videoEl" autoplay playsinline muted></video>
+    <canvas id="overlayCanvas"></canvas>
+  </div>
 
-        <div class="control-group">
-            <label for="opacitySlider">3. Live Opacity:</label>
-            <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.5">
-            <span class="value-display" id="opacityValue">50%</span>
-        </div>
+  <div class="controls">
+    <button class="btn" id="startBtn" onclick="startCamera()">📷 Start Camera</button>
+    <button class="btn" id="snapBtn" onclick="snapFrame()" style="display:none">📸 Freeze Frame</button>
+    <button class="btn" id="liveBtn" onclick="goLive()" style="display:none">▶ Go Live</button>
+    <button class="btn danger" id="resetBtn" onclick="resetAll()" style="display:none">↺ Reset</button>
+  </div>
+
+  <div class="mode-row" id="modeRow" style="display:none">
+    <button class="mode-btn" id="modeBall" onclick="setMode('ball')">🟡 Set Ball</button>
+    <button class="mode-btn" id="modeHole" onclick="setMode('hole')">⚫ Set Hole</button>
+  </div>
+
+  <div class="status-row" id="statusRow" style="display:none">
+    <div class="status-pill" id="pillBall"><span class="dot"></span>Ball: not set</div>
+    <div class="status-pill" id="pillHole"><span class="dot"></span>Hole: not set</div>
+    <div class="status-pill" id="pillDist"><span class="dot"></span>Distance: —</div>
+  </div>
+
+  <p class="snap-hint" id="snapHint" style="display:none">Tip: Freeze the frame first for precise marking</p>
+
+  <div class="result-card" id="resultCard" style="display:none">
+    <h2>AimPoint Result</h2>
+    <div class="aim-display">
+      <div class="aim-stat">
+        <div class="label">Aim offset</div>
+        <div class="value" id="resInches">—</div>
+        <div class="unit" id="resDirection">inches L/R</div>
+      </div>
+      <div class="aim-stat">
+        <div class="label">Forward/back</div>
+        <div class="value" id="resYards">—</div>
+        <div class="unit">yards</div>
+      </div>
+      <div class="aim-stat">
+        <div class="label">Slope grade</div>
+        <div class="value" id="resSlope">—</div>
+        <div class="unit">%</div>
+      </div>
     </div>
-
-    <div class="video-wrapper">
-        <video id="mainVideo" controls>
-            Your browser does not support the video tag.
-        </video>
-        <video id="webcamVideo" autoplay muted playsinline></video>
+    <div class="aim-direction" id="aimDirection"></div>
+    <div class="slope-bar-wrap">
+      <div class="slope-label"><span>Left</span><span id="slopeCaption">Slope direction</span><span>Right</span></div>
+      <div class="slope-bar"><div class="slope-fill" id="slopeFill" style="width:50%;background:#7dce82;margin-left:0"></div></div>
     </div>
+  </div>
 
-    <script>
-        // Grab our HTML elements
-        const videoUpload = document.getElementById('videoUpload');
-        const mainVideo = document.getElementById('mainVideo');
-        const webcamVideo = document.getElementById('webcamVideo');
-        const speedSlider = document.getElementById('speedSlider');
-        const speedValue = document.getElementById('speedValue');
-        const opacitySlider = document.getElementById('opacitySlider');
-        const opacityValue = document.getElementById('opacityValue');
+  <p class="instructions" id="instructions">Tap "Start Camera" to begin. Point your device at the green.</p>
+</div>
 
-        // 1. Handle Video Upload
-        videoUpload.addEventListener('change', function(event) {
-            const file = event.target.files[0];
-            if (file) {
-                // Create a temporary local URL for the uploaded file
-                const videoURL = URL.createObjectURL(file);
-                mainVideo.src = videoURL;
-                mainVideo.load();
-                mainVideo.play();
-            }
-        });
+<script>
+const video = document.getElementById('videoEl');
+const canvas = document.getElementById('overlayCanvas');
+const ctx = canvas.getContext('2d');
 
-        // 2. Handle Playback Speed (between 0.25x and 4x)
-        speedSlider.addEventListener('input', function() {
-            const speed = parseFloat(this.value);
-            mainVideo.playbackRate = speed;
-            speedValue.textContent = speed.toFixed(2) + 'x';
-        });
+let stream = null;
+let frozen = false;
+let frozenImageData = null;
+let mode = 'ball';
+let ball = null;
+let hole = null;
+let analyzing = false;
+let animFrame = null;
 
-        // 3. Handle Webcam Opacity (See-through level)
-        opacitySlider.addEventListener('input', function() {
-            const opacity = parseFloat(this.value);
-            webcamVideo.style.opacity = opacity;
-            opacityValue.textContent = Math.round(opacity * 100) + '%';
-        });
+const AVG_PUTT_DISTANCE_YARDS = 15;
+const SLOPE_SENSITIVITY = 0.018;
 
-        // 4. Initialize Live Webcam Feed
-        async function setupWebcam() {
-            try {
-                // Request camera access from the browser
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                webcamVideo.srcObject = stream;
-            } catch (err) {
-                console.error("Camera access error: ", err);
-                alert("Could not access the webcam. Please make sure you granted camera permissions in your browser.");
-            }
-        }
+function startCamera() {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } } })
+    .then(s => {
+      stream = s;
+      video.srcObject = s;
+      video.play();
+      document.getElementById('startBtn').style.display = 'none';
+      document.getElementById('snapBtn').style.display = '';
+      document.getElementById('resetBtn').style.display = '';
+      document.getElementById('modeRow').style.display = '';
+      document.getElementById('statusRow').style.display = '';
+      document.getElementById('snapHint').style.display = '';
+      document.getElementById('instructions').textContent = 'Tap "Set Ball" then tap on the ball in the image. Then tap "Set Hole" and tap the hole.';
+      setMode('ball');
+      video.addEventListener('loadedmetadata', resizeCanvas);
+      resizeCanvas();
+      drawLoop();
+    })
+    .catch(e => {
+      alert('Camera access denied or unavailable. Please allow camera permissions and try again.\n\n' + e.message);
+    });
+}
 
-        // Start the webcam as soon as the page loads
-        setupWebcam();
-    </script>
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+}
+
+window.addEventListener('resize', resizeCanvas);
+
+function drawLoop() {
+  if (!frozen) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawMarkers();
+  }
+  animFrame = requestAnimationFrame(drawLoop);
+}
+
+function snapFrame() {
+  if (!stream) return;
+  frozen = true;
+  const offscreen = document.createElement('canvas');
+  offscreen.width = canvas.width;
+  offscreen.height = canvas.height;
+  const oc = offscreen.getContext('2d');
+  oc.drawImage(video, 0, 0, canvas.width, canvas.height);
+  frozenImageData = oc.getImageData(0, 0, canvas.width, canvas.height);
+  ctx.putImageData(frozenImageData, 0, 0);
+  drawMarkers();
+  document.getElementById('snapBtn').style.display = 'none';
+  document.getElementById('liveBtn').style.display = '';
+  document.getElementById('instructions').textContent = 'Frame frozen. Tap "Set Ball" mode then tap the ball position. Then "Set Hole".';
+}
+
+function goLive() {
+  frozen = false;
+  frozenImageData = null;
+  document.getElementById('liveBtn').style.display = 'none';
+  document.getElementById('snapBtn').style.display = '';
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('modeBall').className = 'mode-btn' + (m === 'ball' ? ' selected-ball' : '');
+  document.getElementById('modeHole').className = 'mode-btn' + (m === 'hole' ? ' selected-hole' : '');
+}
+
+canvas.addEventListener('click', handleTap);
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  const touch = e.changedTouches[0];
+  const rect = canvas.getBoundingClientRect();
+  handleTapAt(touch.clientX - rect.left, touch.clientY - rect.top);
+}, { passive: false });
+
+function handleTap(e) {
+  const rect = canvas.getBoundingClientRect();
+  handleTapAt(e.clientX - rect.left, e.clientY - rect.top);
+}
+
+function handleTapAt(x, y) {
+  if (!stream) return;
+  const nx = x / canvas.width;
+  const ny = y / canvas.height;
+  if (mode === 'ball') {
+    ball = { x: nx, y: ny };
+    updatePill('pillBall', 'Ball: set ✓', true);
+  } else {
+    hole = { x: nx, y: ny };
+    updatePill('pillHole', 'Hole: set ✓', true);
+  }
+  if (ball && hole) {
+    const dist = estimateYards(ball, hole);
+    updatePill('pillDist', `~${dist.toFixed(1)} yds`, true);
+    analyze();
+  }
+  if (frozen) {
+    ctx.putImageData(frozenImageData, 0, 0);
+  }
+  drawMarkers();
+}
+
+function updatePill(id, text, isSet) {
+  const el = document.getElementById(id);
+  el.className = 'status-pill' + (isSet ? ' set' : '');
+  el.innerHTML = `<span class="dot"></span>${text}`;
+}
+
+function estimateYards(b, h) {
+  const dx = (h.x - b.x);
+  const dy = (h.y - b.y);
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  return dist * 60;
+}
+
+function drawMarkers() {
+  if (ball) drawPin(ball.x * canvas.width, ball.y * canvas.height, '#40b4e0', '⬤', 'BALL');
+  if (hole) drawPin(hole.x * canvas.width, hole.y * canvas.height, '#e07040', '⊙', 'HOLE');
+  if (ball && hole) drawLine();
+}
+
+function drawPin(x, y, color, sym, label) {
+  ctx.save();
+  ctx.shadowBlur = 12;
+  ctx.shadowColor = color;
+  ctx.fillStyle = color;
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(sym === '⬤' ? 'B' : 'H', x, y);
+
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 28, y - 32, 56, 18);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.fillText(label, x, y - 23);
+  ctx.restore();
+}
+
+function drawLine() {
+  const bx = ball.x * canvas.width, by = ball.y * canvas.height;
+  const hx = hole.x * canvas.width, hy = hole.y * canvas.height;
+  ctx.save();
+  ctx.setLineDash([6, 5]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(bx, by);
+  ctx.lineTo(hx, hy);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function analyze() {
+  if (!ball || !hole || analyzing) return;
+  if (!stream) return;
+
+  document.getElementById('resultCard').style.display = 'none';
+  analyzing = true;
+
+  const slopeData = computeSlopeFromImage();
+  const dist = estimateYards(ball, hole);
+  const crossSlope = slopeData.crossSlope;
+  const puttSlope = slopeData.puttSlope;
+
+  const breakInches = Math.round(crossSlope * dist * 52 * SLOPE_SENSITIVITY * 100) / 10;
+  const breakDirection = crossSlope > 0.02 ? 'right' : crossSlope < -0.02 ? 'left' : 'straight';
+  const forwardAdj = parseFloat((puttSlope * dist * 0.15).toFixed(1));
+  const slopePct = parseFloat((Math.sqrt(crossSlope * crossSlope + puttSlope * puttSlope) * 100).toFixed(1));
+
+  const absBreak = Math.abs(breakInches);
+  document.getElementById('resInches').textContent = absBreak.toFixed(1);
+  document.getElementById('resSlope').textContent = slopePct;
+
+  const adjLabel = forwardAdj >= 0 ? `+${forwardAdj}` : `${forwardAdj}`;
+  document.getElementById('resYards').textContent = adjLabel;
+
+  let dirText = '';
+  if (breakDirection === 'straight') {
+    dirText = '<strong>Straight putt</strong> — aim directly at the center of the hole.';
+    document.getElementById('resDirection').textContent = 'inches (straight)';
+  } else {
+    document.getElementById('resDirection').textContent = `inches ${breakDirection === 'right' ? '→ right' : '← left'}`;
+    const sideWord = breakDirection === 'right' ? 'right' : 'left';
+    dirText = `Aim <strong>${absBreak.toFixed(1)} inches ${sideWord} of center</strong>. `;
+    if (forwardAdj > 0.3) dirText += `The uphill slope adds distance — hit about <strong>${forwardAdj} yard${forwardAdj !== 1 ? 's' : ''} firmer</strong>.`;
+    else if (forwardAdj < -0.3) dirText += `The downhill slope reduces speed — aim about <strong>${Math.abs(forwardAdj)} yard${Math.abs(forwardAdj) !== 1 ? 's' : ''} shorter</strong>.`;
+    else dirText += 'The slope is mostly flat — normal pace.';
+  }
+
+  document.getElementById('aimDirection').innerHTML = dirText;
+
+  const slopeBarFill = document.getElementById('slopeFill');
+  const slopeCaption = document.getElementById('slopeCaption');
+  if (Math.abs(crossSlope) < 0.01) {
+    slopeBarFill.style.width = '50%';
+    slopeBarFill.style.marginLeft = '0';
+    slopeBarFill.style.background = '#7dce82';
+    slopeCaption.textContent = 'Flat';
+  } else if (crossSlope > 0) {
+    const pct = Math.min(crossSlope * 300, 48);
+    slopeBarFill.style.width = `${pct}%`;
+    slopeBarFill.style.marginLeft = `${50}%`;
+    slopeBarFill.style.background = '#e07040';
+    slopeCaption.textContent = `Breaking right (${slopePct}%)`;
+  } else {
+    const pct = Math.min(Math.abs(crossSlope) * 300, 48);
+    slopeBarFill.style.width = `${pct}%`;
+    slopeBarFill.style.marginLeft = `${50 - pct}%`;
+    slopeBarFill.style.background = '#40b4e0';
+    slopeCaption.textContent = `Breaking left (${slopePct}%)`;
+  }
+
+  document.getElementById('resultCard').style.display = '';
+  analyzing = false;
+}
+
+function computeSlopeFromImage() {
+  if (!ball || !hole) return { crossSlope: 0, puttSlope: 0 };
+
+  const tempCanvas = document.createElement('canvas');
+  const tw = 200, th = 150;
+  tempCanvas.width = tw;
+  tempCanvas.height = th;
+  const tc = tempCanvas.getContext('2d');
+
+  if (frozen && frozenImageData) {
+    const scaleX = frozenImageData.width / canvas.width;
+    const scaleY = frozenImageData.height / canvas.height;
+    const src = document.createElement('canvas');
+    src.width = canvas.width;
+    src.height = canvas.height;
+    src.getContext('2d').putImageData(frozenImageData, 0, 0);
+    tc.drawImage(src, 0, 0, tw, th);
+  } else {
+    tc.drawImage(video, 0, 0, tw, th);
+  }
+
+  const bx = Math.floor(ball.x * tw);
+  const by = Math.floor(ball.y * th);
+  const hx = Math.floor(hole.x * tw);
+  const hy = Math.floor(hole.y * th);
+
+  const dx = hx - bx;
+  const dy = hy - by;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const perpX = -uy;
+  const perpY = ux;
+
+  const samples = 12;
+  let leftBright = 0, rightBright = 0;
+  let n = 0;
+
+  for (let i = 1; i <= samples; i++) {
+    const t = i / (samples + 1);
+    const px = Math.floor(bx + dx * t);
+    const py = Math.floor(by + dy * t);
+    const offset = 8;
+    const lx = Math.floor(px - perpX * offset);
+    const ly = Math.floor(py - perpY * offset);
+    const rx = Math.floor(px + perpX * offset);
+    const ry = Math.floor(py + perpY * offset);
+
+    const lb = sampleBrightness(tc, lx, ly, tw, th);
+    const rb = sampleBrightness(tc, rx, ry, tw, th);
+    if (lb >= 0 && rb >= 0) {
+      leftBright += lb;
+      rightBright += rb;
+      n++;
+    }
+  }
+
+  if (n === 0) return { crossSlope: 0, puttSlope: 0 };
+
+  leftBright /= n;
+  rightBright /= n;
+
+  const diff = (rightBright - leftBright) / 255;
+
+  let ballBright = sampleBrightness(tc, bx, by, tw, th);
+  let holeBright = sampleBrightness(tc, hx, hy, tw, th);
+  ballBright = ballBright < 0 ? 128 : ballBright;
+  holeBright = holeBright < 0 ? 128 : holeBright;
+  const puttDiff = (holeBright - ballBright) / 255;
+
+  return {
+    crossSlope: diff * 1.4,
+    puttSlope: puttDiff * 0.8
+  };
+}
+
+function sampleBrightness(ctx2d, x, y, w, h) {
+  if (x < 0 || y < 0 || x >= w || y >= h) return -1;
+  const r = 3;
+  const x0 = Math.max(0, x - r), y0 = Math.max(0, y - r);
+  const x1 = Math.min(w - 1, x + r), y1 = Math.min(h - 1, y + r);
+  const data = ctx2d.getImageData(x0, y0, x1 - x0 + 1, y1 - y0 + 1).data;
+  let sum = 0;
+  let count = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) {
+    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  }
+  return sum / count;
+}
+
+function resetAll() {
+  ball = null;
+  hole = null;
+  frozen = false;
+  frozenImageData = null;
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('liveBtn').style.display = 'none';
+  document.getElementById('snapBtn').style.display = stream ? '' : 'none';
+  updatePill('pillBall', 'Ball: not set', false);
+  updatePill('pillHole', 'Hole: not set', false);
+  updatePill('pillDist', 'Distance: —', false);
+  setMode('ball');
+  document.getElementById('instructions').textContent = 'Markers cleared. Tap "Set Ball" to begin again.';
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+</script>
 </body>
 </html>
