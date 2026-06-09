@@ -55,6 +55,30 @@
             color: #fff;
         }
 
+        /* Custom Playback Controls */
+        .playback-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #333;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            min-width: 80px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
         /* Video Container */
         .video-wrapper {
             position: relative;
@@ -63,15 +87,15 @@
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            /* Creating a strict stacking context here to prevent jumping */
             isolation: isolate; 
         }
 
         #mainVideo {
             position: relative;
-            z-index: 1; /* Explicitly tell the browser this stays on bottom */
+            z-index: 1; 
             width: 100%;
             display: block;
+            /* Uploaded video is NOT mirrored */
         }
 
         #webcamVideo {
@@ -82,10 +106,9 @@
             height: 100%;
             object-fit: cover;
             opacity: 0.5;
-            z-index: 10; /* Explicitly tell the browser this stays on top */
-            /* Allows clicks to pass through to the main video controls */
+            z-index: 10; 
             pointer-events: none; 
-            /* Mirrors ONLY the live webcam feed */
+            /* Live webcam IS mirrored */
             transform: scaleX(-1);
         }
     </style>
@@ -109,10 +132,16 @@
             <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.5">
             <span class="value-display" id="opacityValue">50%</span>
         </div>
+
+        <div class="playback-controls">
+            <button id="playPauseBtn">Play</button>
+            <input type="range" id="seekSlider" value="0" min="0" max="100" step="0.1">
+            <span class="value-display" id="timeDisplay">0:00</span>
+        </div>
     </div>
 
     <div class="video-wrapper">
-        <video id="mainVideo" controls>
+        <video id="mainVideo">
             Your browser does not support the video tag.
         </video>
         <video id="webcamVideo" autoplay muted playsinline></video>
@@ -126,6 +155,11 @@
         const speedValue = document.getElementById('speedValue');
         const opacitySlider = document.getElementById('opacitySlider');
         const opacityValue = document.getElementById('opacityValue');
+        
+        // New Custom Control Elements
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const seekSlider = document.getElementById('seekSlider');
+        const timeDisplay = document.getElementById('timeDisplay');
 
         // Handle Video Upload
         videoUpload.addEventListener('change', function(event) {
@@ -134,8 +168,51 @@
                 const videoURL = URL.createObjectURL(file);
                 mainVideo.src = videoURL;
                 mainVideo.load();
-                mainVideo.play();
+                // We don't auto-play immediately so the user can use the new button
+                playPauseBtn.textContent = 'Play';
             }
+        });
+
+        // Custom Play/Pause Button Logic
+        playPauseBtn.addEventListener('click', function() {
+            if (!mainVideo.src) return; // Do nothing if no video is loaded
+
+            if (mainVideo.paused) {
+                mainVideo.play();
+                playPauseBtn.textContent = 'Pause';
+            } else {
+                mainVideo.pause();
+                playPauseBtn.textContent = 'Play';
+            }
+        });
+
+        // Update Timeline Slider as Video Plays
+        mainVideo.addEventListener('timeupdate', function() {
+            if (mainVideo.duration) {
+                // Update slider position
+                const percentage = (mainVideo.currentTime / mainVideo.duration) * 100;
+                seekSlider.value = percentage;
+
+                // Update time text (e.g., "1:23")
+                let minutes = Math.floor(mainVideo.currentTime / 60);
+                let seconds = Math.floor(mainVideo.currentTime % 60);
+                if (seconds < 10) seconds = '0' + seconds;
+                timeDisplay.textContent = minutes + ':' + seconds;
+            }
+        });
+
+        // Allow User to Scrub Through Video
+        seekSlider.addEventListener('input', function() {
+            if (mainVideo.duration) {
+                const newTime = (this.value / 100) * mainVideo.duration;
+                mainVideo.currentTime = newTime;
+            }
+        });
+
+        // Reset button when video ends
+        mainVideo.addEventListener('ended', function() {
+            playPauseBtn.textContent = 'Play';
+            seekSlider.value = 0;
         });
 
         // Handle Playback Speed
