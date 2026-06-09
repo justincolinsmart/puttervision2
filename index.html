@@ -71,7 +71,6 @@
             z-index: 1; 
             width: 100%;
             display: block;
-            /* Uploaded video is NOT mirrored */
         }
 
         #webcamVideo {
@@ -111,7 +110,7 @@
     </div>
 
     <div class="video-wrapper">
-        <video id="mainVideo" loop autoplay playsinline>
+        <video id="mainVideo" loop autoplay muted playsinline>
             Your browser does not support the video tag.
         </video>
         <video id="webcamVideo" autoplay muted playsinline></video>
@@ -132,12 +131,14 @@
             if (file) {
                 const videoURL = URL.createObjectURL(file);
                 mainVideo.src = videoURL;
-                
-                // Keep the chosen playback speed even if you select a new video
                 mainVideo.playbackRate = parseFloat(speedSlider.value);
                 
-                mainVideo.load();
-                mainVideo.play();
+                // The browser safety net
+                mainVideo.play().catch(function(error) {
+                    console.log("Browser blocked autoplay. Forcing mute to allow playback.");
+                    mainVideo.muted = true;
+                    mainVideo.play();
+                });
             }
         });
 
